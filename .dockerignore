@@ -1,0 +1,16 @@
+node_modules
+.next
+.tools
+.data
+.git
+.claude
+test-results
+playwright-report
+tests/fixtures/generated
+public/__qa
+public/pdfjs
+public/fonts
+public/pdf.worker.min.mjs
+*.log
+.env
+.env.local

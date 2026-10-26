@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.tools/
+.data/
+next-env.d.ts
+*.tsbuildinfo
+.env
+.env.local
+public/pdf.worker.min.mjs
+tests/fixtures/generated/
+test-results/
+playwright-report/
+public/fonts/
+public/__qa/
+public/pdfjs/
+.claude/

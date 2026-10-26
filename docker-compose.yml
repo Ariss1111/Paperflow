@@ -1,0 +1,23 @@
+services:
+  paperflow:
+    build: .
+    ports:
+      - "3210:3210"
+    environment:
+      RETENTION_MINUTES: 60
+      MAX_UPLOAD_MB: 200
+      JOB_CONCURRENCY: 2
+      # CLAMAV_ADDRESS: clamav:3310
+    volumes:
+      - paperflow-data:/data
+    # LibreOffice and OCR are memory-hungry; give the container room.
+    mem_limit: 2g
+    restart: unless-stopped
+
+  # Optional malware scanning. Uncomment together with CLAMAV_ADDRESS above.
+  # clamav:
+  #   image: clamav/clamav:stable
+  #   restart: unless-stopped
+
+volumes:
+  paperflow-data:

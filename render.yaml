@@ -1,0 +1,17 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Deploys the Dockerfile (which includes LibreOffice) as a single web service.
+services:
+  - type: web
+    name: paperflow
+    runtime: docker
+    # "free" works for trying it out (sleeps when idle, 512 MB RAM — large Office files may fail).
+    # Use "standard" (2 GB) or larger for reliable Office conversion and OCR.
+    plan: free
+    healthCheckPath: /api/capabilities
+    envVars:
+      - key: RETENTION_MINUTES
+        value: "60"
+      - key: MAX_UPLOAD_MB
+        value: "100"
+      - key: JOB_CONCURRENCY
+        value: "1"
