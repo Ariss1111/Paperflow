@@ -5,6 +5,7 @@ const PORT = Number(process.env.E2E_PORT || 3210);
 // Uses an installed Microsoft Edge (or Chrome via E2E_CHANNEL=chrome) so no browser download is needed.
 export default defineConfig({
   testDir: "tests/e2e",
+  globalSetup: "tests/e2e/global-setup.ts",
   timeout: 180_000,
   expect: { timeout: 60_000 },
   fullyParallel: false,

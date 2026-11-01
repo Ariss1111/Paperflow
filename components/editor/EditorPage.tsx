@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { PDFDocumentProxy, PageViewport } from "pdfjs-dist";
 import {
   MousePointer2, Type, TextCursorInput, Highlighter, Underline, Strikethrough, PenLine, Square, Circle, Minus, MoveUpRight, MessageSquare,
-  Eraser, Image as ImageIcon, Signature, CalendarDays, Undo2, Redo2, ZoomIn, ZoomOut, Download, ChevronLeft, PanelLeft, PanelRight, MoreHorizontal, X, Loader2,
+  Eraser, Image as ImageIcon, Signature, CalendarDays, Undo2, Redo2, Hand, Download, ChevronLeft, PanelLeft, PanelRight, MoreHorizontal, X, Loader2,
 } from "lucide-react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { getTool } from "@/lib/tools/catalog";
@@ -28,17 +28,27 @@ import { PageView, fitText, translate, type ToolId, type ToolStyle } from "./Pag
 import { Inspector } from "./Inspector";
 import { Thumbnails } from "./Thumbnails";
 import { SignatureDialog } from "./SignatureDialog";
+import { ZoomBar, MIN_ZOOM, MAX_ZOOM } from "./ZoomBar";
 import { loadEditorFonts } from "./fonts";
 import { textItems, pointToPdf, type TextItem } from "./geometry";
 import { cn } from "@/lib/utils";
 import type { StoredFile } from "@/types";
 
 const CSS_UNITS = 96 / 72;
-const ZOOMS = [0.25, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+const ZOOMS = [0.1, 0.25, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+const clampScale = (s: number) => Math.max((MIN_ZOOM / 100) * CSS_UNITS, Math.min((MAX_ZOOM / 100) * CSS_UNITS, s));
+
+/** A document point held still on screen while the zoom changes. */
+type Anchor = { key: string; fx: number; fy: number; sx: number; sy: number };
+/** A zoom gesture in progress: previewed with a CSS transform, re-rendered sharply when it ends. */
+type ZoomGesture = { k: number; anchor: Anchor | null; dx: number; dy: number };
 
 type ToolDefn = { id: ToolId; label: string; icon: React.ComponentType<{ className?: string }>; key: string };
 const EDIT_TOOLS: ToolDefn[][] = [
-  [{ id: "select", label: "Select", icon: MousePointer2, key: "V" }],
+  [
+    { id: "select", label: "Select", icon: MousePointer2, key: "V" },
+    { id: "hand", label: "Pan (or hold Space)", icon: Hand, key: "P" },
+  ],
   [
     { id: "text", label: "Add text", icon: Type, key: "T" },
     { id: "replace", label: "Edit text", icon: TextCursorInput, key: "E" },
@@ -58,7 +68,7 @@ const EDIT_TOOLS: ToolDefn[][] = [
   ],
   [{ id: "erase", label: "Erase area (removes content)", icon: Eraser, key: "X" }],
 ];
-const SIGN_TOOLS: ToolDefn[][] = [[{ id: "select", label: "Select", icon: MousePointer2, key: "V" }], [{ id: "text", label: "Add text", icon: Type, key: "T" }]];
+const SIGN_TOOLS: ToolDefn[][] = [[{ id: "select", label: "Select", icon: MousePointer2, key: "V" }, { id: "hand", label: "Pan (or hold Space)", icon: Hand, key: "P" }], [{ id: "text", label: "Add text", icon: Type, key: "T" }]];
 
 const DEFAULT_STYLE: ToolStyle = { color: "#1d1d1f", stroke: "#d70015", fill: null, width: 2, size: 14, font: "sans", bold: false, opacity: 1, highlight: "#ffd60a" };
 
@@ -130,7 +140,13 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
   const [exportOpen, setExportOpen] = React.useState(false);
   const [restored, setRestored] = React.useState(false);
   const [inserting, setInserting] = React.useState(false);
+  const [gestureScale, setGestureScale] = React.useState<number | null>(null);
+  const [spaceHeld, setSpaceHeld] = React.useState(false);
   const scroller = React.useRef<HTMLDivElement>(null);
+  const content = React.useRef<HTMLDivElement>(null);
+  const pendingAnchor = React.useRef<Anchor | null>(null);
+  const gesture = React.useRef<ZoomGesture | null>(null);
+  const panning = React.useRef<{ x: number; y: number; left: number; top: number; id: number } | null>(null);
   const views = React.useRef(new Map<string, { el: HTMLElement; vp: PageViewport }>());
   const textCache = React.useRef(new Map<number, Promise<TextItem[]>>());
   const imageInput = React.useRef<HTMLInputElement>(null);
@@ -158,22 +174,198 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
     };
   }, [file.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** The document point under a screen position (or the nearest page's edge when between pages). */
+  const anchorAt = (clientX: number, clientY: number): Anchor | null => {
+    const sc = scroller.current;
+    if (!sc) return null;
+    const box = sc.getBoundingClientRect();
+    let best: Anchor | null = null;
+    let bestDist = Infinity;
+    views.current.forEach(({ el }, key) => {
+      const r = el.getBoundingClientRect();
+      const d = clientY < r.top ? r.top - clientY : clientY > r.bottom ? clientY - r.bottom : 0;
+      if (d < bestDist) {
+        bestDist = d;
+        best = { key, fx: (clientX - r.left) / r.width, fy: (clientY - r.top) / r.height, sx: clientX - box.left, sy: clientY - box.top };
+      }
+    });
+    return best;
+  };
+
+  const zoomTo = (next: number, at?: Anchor | null) => {
+    const sc = scroller.current;
+    if (!sc) return;
+    const box = sc.getBoundingClientRect();
+    pendingAnchor.current = at ?? anchorAt(box.left + box.width / 2, box.top + box.height / 2);
+    setScale(clampScale(next));
+  };
+
+  // after a zoom commits, scroll so the anchored document point is back under the same screen position
+  React.useLayoutEffect(() => {
+    const a = pendingAnchor.current;
+    const sc = scroller.current;
+    pendingAnchor.current = null;
+    if (!a || !sc) return;
+    const el = views.current.get(a.key)?.el;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const box = sc.getBoundingClientRect();
+    sc.scrollLeft += r.left + a.fx * r.width - (box.left + a.sx);
+    sc.scrollTop += r.top + a.fy * r.height - (box.top + a.sy);
+  }, [scale]);
+
+  const scaleRef = React.useRef(scale);
+  scaleRef.current = scale;
+
+  const beginGesture = (clientX: number, clientY: number) => {
+    const c = content.current!.getBoundingClientRect();
+    gesture.current = { k: 1, anchor: anchorAt(clientX, clientY), dx: 0, dy: 0 };
+    content.current!.style.transformOrigin = `${clientX - c.left}px ${clientY - c.top}px`;
+    content.current!.style.willChange = "transform";
+  };
+
+  const paintGesture = () => {
+    const g = gesture.current;
+    if (!g) return;
+    content.current!.style.transform = `translate(${g.dx}px, ${g.dy}px) scale(${g.k})`;
+    setGestureScale(clampScale(scaleRef.current * g.k));
+  };
+
+  const endGesture = (clientX?: number, clientY?: number) => {
+    const g = gesture.current;
+    if (!g) return;
+    gesture.current = null;
+    const box = scroller.current!.getBoundingClientRect();
+    content.current!.style.transform = "";
+    content.current!.style.transformOrigin = "";
+    content.current!.style.willChange = "";
+    setGestureScale(null);
+    const anchor = g.anchor && clientX !== undefined && clientY !== undefined ? { ...g.anchor, sx: clientX - box.left, sy: clientY - box.top } : g.anchor;
+    zoomTo(scaleRef.current * g.k, anchor);
+  };
+
+  // Ctrl/⌘ + wheel and trackpad pinch (which browsers report as ctrl+wheel). A plain wheel keeps scrolling pages.
+  React.useEffect(() => {
+    const sc = scroller.current;
+    if (!sc) return;
+    let timer = 0;
+    let last = [0, 0];
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      if (!gesture.current) beginGesture(e.clientX, e.clientY);
+      last = [e.clientX, e.clientY];
+      const g = gesture.current!;
+      const delta = Math.max(-120, Math.min(120, e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY));
+      const limit = clampScale(scaleRef.current * g.k * Math.exp(-delta * 0.0028));
+      g.k = limit / scaleRef.current;
+      paintGesture();
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => endGesture(last[0], last[1]), 140);
+    };
+    sc.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      sc.removeEventListener("wheel", onWheel);
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf]);
+
+  // two-finger pinch on phones and tablets
+  React.useEffect(() => {
+    const sc = scroller.current;
+    if (!sc) return;
+    let start: { d: number; x: number; y: number } | null = null;
+    let mid = [0, 0];
+    const measure = (t: TouchList) => ({
+      d: Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) || 1,
+      x: (t[0].clientX + t[1].clientX) / 2,
+      y: (t[0].clientY + t[1].clientY) / 2,
+    });
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || start) return;
+      start = measure(e.touches);
+      mid = [start.x, start.y];
+      beginGesture(start.x, start.y);
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!start || e.touches.length < 2 || !gesture.current) return;
+      e.preventDefault();
+      const m = measure(e.touches);
+      const g = gesture.current;
+      g.k = clampScale((scaleRef.current * m.d) / start.d) / scaleRef.current;
+      g.dx = m.x - start.x;
+      g.dy = m.y - start.y;
+      mid = [m.x, m.y];
+      paintGesture();
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (!start || e.touches.length >= 2) return;
+      start = null;
+      endGesture(mid[0], mid[1]);
+    };
+    sc.addEventListener("touchstart", onStart, { passive: true });
+    sc.addEventListener("touchmove", onMove, { passive: false });
+    sc.addEventListener("touchend", onEnd);
+    sc.addEventListener("touchcancel", onEnd);
+    return () => {
+      sc.removeEventListener("touchstart", onStart);
+      sc.removeEventListener("touchmove", onMove);
+      sc.removeEventListener("touchend", onEnd);
+      sc.removeEventListener("touchcancel", onEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf]);
+
+  // drag-to-pan with a mouse or stylus: the hand tool, holding Space, the middle button, or the select tool on empty page
+  const onPanStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") return; // one finger already scrolls natively
+    const onObject = !!(e.target as HTMLElement).closest("[data-obj],[data-handle],textarea");
+    const force = toolId === "hand" || spaceHeld || e.button === 1;
+    if (!force && !(toolId === "select" && e.button === 0 && !onObject)) return;
+    const sc = e.currentTarget;
+    panning.current = { x: e.clientX, y: e.clientY, left: sc.scrollLeft, top: sc.scrollTop, id: e.pointerId };
+    sc.setPointerCapture(e.pointerId);
+    if (force) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  const onPanMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = panning.current;
+    if (!p) return;
+    e.currentTarget.scrollLeft = p.left - (e.clientX - p.x);
+    e.currentTarget.scrollTop = p.top - (e.clientY - p.y);
+  };
+  const onPanEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (panning.current?.id === e.pointerId) panning.current = null;
+  };
+
   const fit = React.useCallback(
     async (kind: "width" | "page") => {
       if (!pdf || !scroller.current) return;
-      // fit to the widest page (mixed portrait/landscape documents), page-fit to the current one
+      // fit-to-width uses the widest page (mixed portrait/landscape documents), fit-to-page the current one
       let maxW = 1;
+      let curW = 1;
       let curH = 1;
       for (const p of doc.pages.slice(0, 60)) {
         const page = await pdf.getPage(p.src + 1);
         const vp = page.getViewport({ scale: 1, rotation: (page.rotate + p.rotate) % 360 });
         maxW = Math.max(maxW, vp.width);
-        if (p.key === (currentKey ?? doc.pages[0]?.key)) curH = vp.height;
+        if (p.key === (currentKey ?? doc.pages[0]?.key)) {
+          curW = vp.width;
+          curH = vp.height;
+        }
       }
-      const w = (scroller.current.clientWidth - 64) / maxW;
-      const h = (scroller.current.clientHeight - 48) / curH;
-      setScale(Math.max(0.2, Math.min(4 * CSS_UNITS, kind === "width" ? w : Math.min(w, h))));
+      const room = scroller.current.clientWidth - 64;
+      const next = clampScale(kind === "width" ? room / maxW : Math.min(room / curW, (scroller.current.clientHeight - 48) / curH));
+      const key = currentKey ?? doc.pages[0]?.key;
+      const box = scroller.current.getBoundingClientRect();
+      // fit-to-page centres the current page; fit-to-width keeps the reading position
+      pendingAnchor.current = kind === "page" && key ? { key, fx: 0.5, fy: 0.5, sx: box.width / 2, sy: box.height / 2 } : anchorAt(box.left + box.width / 2, box.top + box.height / 3);
+      setScale(next);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [pdf, doc.pages, currentKey],
   );
   const fitted = React.useRef(false);
@@ -219,7 +411,7 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
   const zoomBy = (dir: 1 | -1) => {
     const pct = scale / CSS_UNITS;
     const next = dir > 0 ? ZOOMS.find((z) => z > pct + 0.001) : [...ZOOMS].reverse().find((z) => z < pct - 0.001);
-    if (next) setScale(next * CSS_UNITS);
+    if (next) zoomTo(next * CSS_UNITS);
   };
 
   const selected = doc.objects.find((o) => o.id === selectedId) ?? null;
@@ -323,6 +515,11 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
         fit("width");
         return;
       }
+      if (mod && e.key === "1") {
+        e.preventDefault();
+        zoomTo(CSS_UNITS);
+        return;
+      }
       if (isTyping(e.target)) return;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -348,6 +545,11 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
         return;
       }
       if (mod) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        setSpaceHeld(true);
+        return;
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
         e.preventDefault();
         deleteSelected();
@@ -371,12 +573,20 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
         else if (e.key.toLowerCase() === "i") imageInput.current?.click();
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") setSpaceHeld(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   });
 
   const toolGroups = mode === "sign" ? SIGN_TOOLS : EDIT_TOOLS;
-  const zoomPct = Math.round((scale / CSS_UNITS) * 100);
+  const zoomPct = Math.round(((gestureScale ?? scale) / CSS_UNITS) * 100);
+  const currentIndex = Math.max(0, doc.pages.findIndex((p) => p.key === currentKey));
   const changes = doc.objects.length;
 
   if (loadError)
@@ -460,39 +670,6 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
             }}
           />
         </div>
-        <div className="hidden items-center gap-0.5 sm:flex">
-          <IconButton label="Zoom out (⌘−)" onClick={() => zoomBy(-1)}>
-            <ZoomOut className="size-4" />
-          </IconButton>
-          <Menu.Root>
-            <Menu.Trigger className="h-7 w-14 rounded-md text-xs font-medium tabular-nums text-ink-2 hover:bg-ink/[0.06]" aria-label="Zoom options">
-              {zoomPct}%
-            </Menu.Trigger>
-            <Menu.Portal>
-              <Menu.Content sideOffset={6} className="glass z-50 w-44 animate-rise-in rounded-xl p-1.5 shadow-overlay">
-                {[
-                  ["Fit width", () => fit("width"), "⌘0"],
-                  ["Fit page", () => fit("page"), ""],
-                  ["Actual size", () => setScale(CSS_UNITS), ""],
-                ].map(([label, fn, k]) => (
-                  <Menu.Item key={label as string} onSelect={fn as () => void} className="flex cursor-default items-center justify-between rounded-lg px-2 py-1.5 text-sm text-ink outline-none data-[highlighted]:bg-accent data-[highlighted]:text-white">
-                    {label as string}
-                    {k && <span className="text-xs opacity-60">{k as string}</span>}
-                  </Menu.Item>
-                ))}
-                <Menu.Separator className="my-1 h-px bg-ink/10" />
-                {[50, 75, 100, 125, 150, 200].map((z) => (
-                  <Menu.Item key={z} onSelect={() => setScale((z / 100) * CSS_UNITS)} className="cursor-default rounded-lg px-2 py-1.5 text-sm text-ink outline-none data-[highlighted]:bg-accent data-[highlighted]:text-white">
-                    {z}%
-                  </Menu.Item>
-                ))}
-              </Menu.Content>
-            </Menu.Portal>
-          </Menu.Root>
-          <IconButton label="Zoom in (⌘+)" onClick={() => zoomBy(1)}>
-            <ZoomIn className="size-4" />
-          </IconButton>
-        </div>
         <IconButton label={showInspector ? "Hide inspector" : "Show inspector"} active={showInspector} onClick={() => setShowInspector((s) => !s)} className="hidden lg:inline-flex">
           <PanelRight className="size-4" />
         </IconButton>
@@ -520,6 +697,8 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
               <div className="space-y-1 px-2 py-1.5 text-xs text-ink-3">
                 <p className="flex justify-between">Undo / redo <span><Kbd>⌘Z</Kbd> <Kbd>⇧⌘Z</Kbd></span></p>
                 <p className="flex justify-between">Zoom <span><Kbd>⌘+</Kbd> <Kbd>⌘−</Kbd></span></p>
+                <p className="flex justify-between">Zoom with wheel <Kbd>⌘ scroll</Kbd></p>
+                <p className="flex justify-between">Pan <Kbd>Space drag</Kbd></p>
                 <p className="flex justify-between">Pages <span><Kbd>PgUp</Kbd> <Kbd>PgDn</Kbd></span></p>
                 <p className="flex justify-between">Duplicate <Kbd>⌘D</Kbd></p>
                 <p className="flex justify-between">Export <Kbd>⌘S</Kbd></p>
@@ -562,13 +741,24 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
         )}
 
         {/* ---------------------------------------------------------------- canvas */}
-        <div ref={scroller} onScroll={onScroll} className="checker scroll-thin relative min-w-0 flex-1 overflow-auto" onPointerDown={(e) => e.target === e.currentTarget && setSelectedId(null)}>
+        <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          ref={scroller}
+          onScroll={onScroll}
+          data-testid="editor-scroller"
+          className={cn("checker scroll-thin relative min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto", (toolId === "hand" || spaceHeld) && "cursor-grab active:cursor-grabbing [&_*]:cursor-[inherit]")}
+          onPointerDownCapture={onPanStart}
+          onPointerMove={onPanMove}
+          onPointerUp={onPanEnd}
+          onPointerCancel={onPanEnd}
+          onPointerDown={(e) => e.target === e.currentTarget && setSelectedId(null)}
+        >
           {!pdf ? (
             <div className="flex h-full items-center justify-center text-sm text-ink-3">
               <Loader2 className="mr-2 size-4 animate-spin" /> Opening document…
             </div>
           ) : (
-            <div className="flex min-w-max flex-col items-center gap-6 px-8 py-6">
+            <div ref={content} className="flex min-w-max flex-col items-center gap-6 px-8 py-6">
               {doc.pages.map((p, i) => (
                 <div key={p.key} className="flex flex-col items-center gap-1.5">
                   <PageView
@@ -604,9 +794,29 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
               {(toolId === "rect" || toolId === "ellipse" || toolId === "line" || toolId === "arrow") && "Drag to draw."}
               {toolId === "comment" && "Click to place a comment."}
               {toolId === "erase" && "Drag over an area to remove everything inside it on export."}
+              {toolId === "hand" && "Drag to move around the document."}
               <span className="ml-2 text-ink-3">Esc to stop</span>
             </div>
           )}
+        </div>
+
+        {pdf && (
+          <ZoomBar
+            percent={zoomPct}
+            pageIndex={currentIndex}
+            pageCount={doc.pages.length}
+            onZoom={(p) => zoomTo((p / 100) * CSS_UNITS)}
+            onZoomIn={() => zoomBy(1)}
+            onZoomOut={() => zoomBy(-1)}
+            onFitWidth={() => fit("width")}
+            onFitPage={() => fit("page")}
+            onReset={() => zoomTo(CSS_UNITS)}
+            onPage={(i) => {
+              const key = doc.pages[i]?.key;
+              if (key) goTo(key);
+            }}
+          />
+        )}
         </div>
 
         {/* ---------------------------------------------------------------- inspector */}

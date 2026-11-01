@@ -20,7 +20,7 @@ const NAV = [
   { href: "/files", label: "My Files", icon: FolderOpen },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
-const QUICK = ["merge", "split", "compress", "organize", "sign", "protect"];
+const QUICK = ["scan", "merge", "split", "compress", "organize", "sign", "protect"];
 
 export function Logo({ className }: { className?: string }) {
   return (
@@ -213,7 +213,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = React.useState(false);
   const [palette, setPalette] = React.useState(false);
   const pathname = usePathname();
-  const fullBleed = pathname.startsWith("/editor") || pathname === "/tools/sign" || pathname === "/tools/edit";
+  const fullBleed = pathname.startsWith("/editor") || pathname.startsWith("/scan") || pathname === "/tools/sign" || pathname === "/tools/edit";
 
   React.useEffect(() => applyTheme(getSettings().theme), []);
   React.useEffect(() => {

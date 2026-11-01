@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import type { PDFDocumentProxy, PageViewport, RenderTask } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFPageProxy, PageViewport, RenderTask } from "pdfjs-dist";
 import type { EditObject, EditPage, Rect, TextObj, ReplaceObj, FontId } from "@/lib/editor/model";
 import { ObjectView } from "./ObjectView";
 import { rectToView, pointToPdf, viewRectToPdf, textItems, clipItem, intersects, type TextItem } from "./geometry";
@@ -8,7 +8,7 @@ import { measureText } from "./fonts";
 import { uid, type EditorApi } from "./useEditorState";
 import { cn } from "@/lib/utils";
 
-export type ToolId = "select" | "text" | "replace" | "highlight" | "underline" | "strike" | "ink" | "rect" | "ellipse" | "line" | "arrow" | "comment" | "erase";
+export type ToolId = "select" | "hand" | "text" | "replace" | "highlight" | "underline" | "strike" | "ink" | "rect" | "ellipse" | "line" | "arrow" | "comment" | "erase";
 
 export interface ToolStyle {
   color: string;
@@ -26,6 +26,10 @@ type Drag =
   | { kind: "move"; id: string; start: [number, number]; orig: EditObject }
   | { kind: "handle"; id: string; handle: string; start: [number, number]; orig: EditObject; view: { left: number; top: number; width: number; height: number } }
   | { kind: "draft"; tool: ToolId; start: [number, number]; cur: [number, number]; points?: [number, number][] };
+
+// Canvas limits: iOS Safari refuses anything above ~16.7 MP; desktops are capped to bound memory.
+const MAX_CANVAS_PIXELS = 48_000_000;
+const MAX_CANVAS_PIXELS_TOUCH = 16_000_000;
 
 /** Baseline sits this far below a text box's top edge (matches the export; DejaVu metrics, line-height 1.25). */
 const BASELINE = 0.971;
@@ -116,7 +120,7 @@ export const PageView = React.memo(function PageView({
 }) {
   const root = React.useRef<HTMLDivElement>(null);
   const canvas = React.useRef<HTMLCanvasElement>(null);
-  const [vp, setVp] = React.useState<PageViewport | null>(null);
+  const [pdfPage, setPdfPage] = React.useState<PDFPageProxy | null>(null);
   const [visible, setVisible] = React.useState(index < 2);
   const [rendered, setRendered] = React.useState(false);
   const [items, setItems] = React.useState<TextItem[] | null>(null);
@@ -124,17 +128,16 @@ export const PageView = React.memo(function PageView({
   const [drag, setDrag] = React.useState<Drag | null>(null);
   const textTools = tool === "replace" || tool === "highlight" || tool === "underline" || tool === "strike";
 
-  // viewport (cheap) — always known so placeholders have the right size
   React.useEffect(() => {
     let live = true;
-    pdf.getPage(page.src + 1).then((p) => {
-      if (!live) return;
-      setVp(p.getViewport({ scale, rotation: (p.rotate + page.rotate) % 360 }));
-    });
+    pdf.getPage(page.src + 1).then((p) => live && setPdfPage(p));
     return () => {
       live = false;
     };
-  }, [pdf, page.src, page.rotate, scale]);
+  }, [pdf, page.src]);
+
+  // synchronous with the zoom state, so the page's layout size is correct in the same commit (zoom anchoring relies on this)
+  const vp = React.useMemo(() => pdfPage?.getViewport({ scale, rotation: (pdfPage.rotate + page.rotate) % 360 }) ?? null, [pdfPage, scale, page.rotate]);
 
   React.useEffect(() => {
     registerView(page.key, root.current, vp);
@@ -149,26 +152,44 @@ export const PageView = React.memo(function PageView({
     return () => io.disconnect();
   }, []);
 
-  // render the page bitmap when visible; re-render on zoom/rotation
+  // Render off-screen at the exact output resolution and swap when done, so text is crisp at any zoom
+  // and the old bitmap stays visible (stretched) in the meantime instead of flashing blank.
   React.useEffect(() => {
-    if (!visible || !vp || !canvas.current) return;
-    let task: RenderTask | null = null;
+    const c = canvas.current;
+    if (!vp || !pdfPage || !c) return;
+    if (!visible) {
+      // far off-screen pages give their (possibly huge) bitmaps back
+      c.width = c.height = 1;
+      setRendered(false);
+      return;
+    }
+    const rotation = (pdfPage.rotate + page.rotate) % 360;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const budget = navigator.maxTouchPoints > 0 ? MAX_CANVAS_PIXELS_TOUCH : MAX_CANVAS_PIXELS;
+    const output = Math.min(dpr, Math.sqrt(budget / (vp.width * vp.height)));
+    const v = pdfPage.getViewport({ scale: scale * output, rotation });
+    const off = document.createElement("canvas");
+    off.width = Math.floor(v.width);
+    off.height = Math.floor(v.height);
+    const task: RenderTask = pdfPage.render({ canvas: off, canvasContext: off.getContext("2d")!, viewport: v });
     let live = true;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    pdf.getPage(page.src + 1).then((p) => {
-      if (!live || !canvas.current) return;
-      const v = p.getViewport({ scale: scale * dpr, rotation: (p.rotate + page.rotate) % 360 });
-      const c = canvas.current;
-      c.width = Math.floor(v.width);
-      c.height = Math.floor(v.height);
-      task = p.render({ canvas: c, canvasContext: c.getContext("2d")!, viewport: v });
-      task.promise.then(() => live && setRendered(true)).catch(() => undefined);
-    });
+    task.promise
+      .then(() => {
+        if (!live) return;
+        c.width = off.width;
+        c.height = off.height;
+        c.getContext("2d")!.drawImage(off, 0, 0);
+        setRendered(true);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        off.width = off.height = 0;
+      });
     return () => {
       live = false;
-      task?.cancel();
+      task.cancel();
     };
-  }, [visible, vp, pdf, page.src, page.rotate, scale]);
+  }, [visible, vp, pdfPage, page.rotate, scale]);
 
   React.useEffect(() => {
     if (!textTools || !visible || items) return;
@@ -222,7 +243,13 @@ export const PageView = React.memo(function PageView({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 || !vp) return;
+    if (e.button !== 0 || !vp || tool === "hand") return;
+    // a second finger means pinch-to-zoom: abandon whatever the first finger started
+    if (e.pointerType === "touch" && !e.isPrimary) {
+      setDrag(null);
+      editor.commit();
+      return;
+    }
     const target = e.target as HTMLElement;
     if (target.closest("textarea")) return;
     // stop the browser's default mousedown focus change, which would blur a text box we're about to focus
@@ -382,6 +409,10 @@ export const PageView = React.memo(function PageView({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        setDrag(null);
+        editor.commit();
+      }}
       onPointerLeave={() => setHoverItem(null)}
       onMouseDown={(e) => {
         // the default mousedown action moves focus to <body>, stealing it from a freshly created text box
@@ -393,8 +424,10 @@ export const PageView = React.memo(function PageView({
         if (o && (o.type === "text" || o.type === "replace")) onEdit(o.id);
       }}
       className={cn(
-        "relative mx-auto touch-none bg-white shadow-[0_0_0_0.5px_rgb(0_0_0/0.12),0_4px_16px_-4px_rgb(0_0_0/0.18)]",
-        tool === "select" ? "cursor-default" : tool === "text" ? "cursor-text" : tool === "replace" ? (hoverItem !== null ? "cursor-pointer" : "cursor-default") : "cursor-crosshair",
+        "relative mx-auto bg-white shadow-[0_0_0_0.5px_rgb(0_0_0/0.12),0_4px_16px_-4px_rgb(0_0_0/0.18)]",
+        // one finger scrolls the document unless a tool needs it; objects and handles always take the touch
+        tool === "select" || tool === "hand" ? "touch-pan-x touch-pan-y [&_[data-handle]]:touch-none [&_[data-obj]]:touch-none" : "touch-none",
+        tool === "hand" ? "cursor-grab" : tool === "select" ? "cursor-default" : tool === "text" ? "cursor-text" : tool === "replace" ? (hoverItem !== null ? "cursor-pointer" : "cursor-default") : "cursor-crosshair",
       )}
       style={{ width: vp?.width ?? 600, height: vp?.height ?? 800 }}
     >
@@ -416,7 +449,7 @@ export const PageView = React.memo(function PageView({
         </div>
       )}
       {vp && (
-        <div className={cn("absolute inset-0", tool !== "select" && tool !== "text" && tool !== "comment" && "[&_[data-obj]]:pointer-events-none")}>
+        <div className={cn("absolute inset-0", tool !== "select" && tool !== "text" && tool !== "comment" && "[&_[data-handle]]:pointer-events-none [&_[data-obj]]:pointer-events-none")}>
           {sorted.map((o) => (
             <ObjectView
               key={o.id}

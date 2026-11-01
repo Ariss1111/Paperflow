@@ -49,7 +49,7 @@ The image includes LibreOffice and Office-compatible fonts (Carlito, Caladea, Li
 | ClamAV (`clamd`) | optional malware scanning | Set `CLAMAV_ADDRESS=host:3310` |
 | ~1–2 GB RAM | LibreOffice + OCR | 512 MB works for PDF tools; large Office files may fail |
 
-Everything else ships as npm packages: MuPDF (WASM), pdf-lib, sharp/libvips, tesseract.js with English OCR data, PDF.js and DejaVu fonts.
+Everything else ships as npm packages: MuPDF (WASM), pdf-lib, sharp/libvips, tesseract.js with English OCR data, PDF.js, OpenCV.js and DejaVu fonts.
 
 ## Configuration (`.env`)
 
@@ -85,10 +85,13 @@ Every item marked **Working** is covered by automated tests that run the operati
 | Optimize | Compress (3 levels, real before/after sizes, original kept if it can't be made smaller), Repair (rebuilds broken cross-reference tables) |
 | Security | Protect (AES-256, permissions), Unlock (requires the correct password; permission-only PDFs require the owner password), View/edit/remove metadata (Info and XMP) |
 | Convert | DOCX, DOC, ODT, RTF, PPTX, PPT, ODP, XLSX, XLS, ODS, CSV, TXT, HTML and Markdown → PDF; JPG/PNG/WebP/TIFF/GIF/BMP → PDF; images → one PDF; PDF → JPG/PNG/WebP/TIFF (per page, chosen DPI and pages); PDF → SVG; PDF → TXT; PDF → HTML; PDF → DOCX; image ↔ image |
+| Scan | Scan Document: camera capture or photo upload, live page outline, auto-capture, crop and perspective correction, four enhancement modes, multi-page PDF (see below) |
 | Extract | OCR (searchable PDF that keeps the original scan under an invisible text layer, or plain text), Extract text, Extract images (native resolution), Compare two PDFs (text diff and visual pixel diff report) |
 | Workspace | Drag-and-drop and multi-file upload with real byte progress, content-based type detection, previews and thumbnails, rename and remove, reorder, processing queue, cancel, retry, per-file download, ZIP of all results, "Continue with another tool", My Files and history, scanned-PDF detection with an OCR hint |
 
-**PDF editor:** PDF.js rendering, thumbnail rail (drag to reorder, rotate, duplicate, delete), zoom (fit width, fit page, presets, ⌘+/⌘−/⌘0), page navigation (PgUp/PgDn), text boxes (font, size, color, bold, alignment, Romanian/Central-European diacritics), **edit existing text**, highlight/underline/strikethrough by dragging over text, comments, freehand ink, rectangle, ellipse, line, arrow, images, signatures, erase area, select/move/resize/rotate, undo/redo (⌘Z/⇧⌘Z), duplicate (⌘D), nudge with arrow keys, autosave of the working state, export to a new PDF, and reopening the export to edit again.
+**PDF editor:** PDF.js rendering, thumbnail rail (drag to reorder, rotate, duplicate, delete), zoom (buttons, typed percentage, presets, fit to width, fit to page, reset, Ctrl/⌘ + wheel, trackpad and touch pinch, anchored on the cursor or fingers, re-rendered sharply), panning (hand tool, hold Space, middle button, drag empty page, one finger on touch), page navigation (buttons, typed number, PgUp/PgDn), text boxes (font, size, color, bold, alignment, Romanian/Central-European diacritics), **edit existing text**, highlight/underline/strikethrough by dragging over text, comments, freehand ink, rectangle, ellipse, line, arrow, images, signatures, erase area, select/move/resize/rotate, undo/redo (⌘Z/⇧⌘Z), duplicate (⌘D), nudge with arrow keys, autosave of the working state, export to a new PDF, and reopening the export to edit again.
+
+**Scan Document** (`/scan`) runs entirely in the browser. OpenCV.js (Web Worker, so the preview never stutters) finds the page, flattens the perspective and recovers the page's true proportions; pdf-lib builds the PDF on the device. Nothing is uploaded unless you choose *Continue editing*. The camera needs HTTPS or localhost, and is released whenever it isn't in use.
 
 The editor labels every object as one of three kinds:
 - **Overlay**: text, images, signatures, shapes and drawings added on top. The original content is unchanged.
@@ -110,6 +113,10 @@ The editor labels every object as one of three kinds:
 | Resize pages | Links and annotations don't carry over when pages are re-laid out (you're told when this happens). |
 | Fill forms | AcroForm only. XFA (LiveCycle) forms are detected and flagged. |
 | PDF → TIFF | One TIFF per page (zipped), not a multi-page TIFF. |
+| Scan: page detection | Needs all four page corners in view and some contrast with the surface. A white page on a white desk, or very busy patterned surfaces, can fail; you then place the corners by hand. Tested on synthetic photos with known geometry plus a simulated camera, so check it with your own camera and lighting. |
+| Scan: automatic rotation | Sideways text is recognised reliably. Upside-down detection relies on Latin ascender/descender shapes, so it may leave non-Latin text or pages with little text as they are; the Rotate button fixes those in one tap. |
+| Scan: resolution | Uses the camera's video stream (up to 4K where offered), not the phone's full-resolution still-photo mode. Uploading a photo taken with the camera app gives the most detail. |
+| Zoom sharpness | Page bitmaps are capped to protect memory (48 MP on desktop, 16 MP on touch devices). On a high-density phone, very high zoom on a large page can look slightly softer. |
 | OCR | English ships with the app. Other languages need their data files (see `OCR_LANG_PATH`). |
 
 ### Requires configuration
@@ -142,10 +149,12 @@ lib/
   pdf/mu.ts               MuPDF operations: render, text, compress, encrypt, repair, redact…
   pdf/edit.ts             applies an editor document (3 passes: assemble → MuPDF → overlays)
   editor/model.ts         editor document model shared by browser and server
+  scanner/                browser side of Scan Document: worker client, PDF export
   server/                 env, session, storage, content detection, job queue, LibreOffice, OCR, ClamAV
 tests/
   unit, integration       Vitest: operations, conversions, API routes (real files)
   e2e                     Playwright: every tool through the real UI, downloads verified
+public/scanner/           computer vision (vision.js) and its Web Worker; vision.js is also tested directly in Node
 scripts/                  fixture generator, asset copier, LibreOffice fetcher
 ```
 
@@ -208,8 +217,8 @@ npm run test:e2e
 ```
 
 - `npm run fixtures` generates the sample set in `tests/fixtures/generated`: PDFs (multi-page, rotated, landscape, blank page, image-heavy, scanned, form, encrypted, permission-restricted, damaged, garbage, empty), images, DOCX/DOC/ODT/RTF, PPTX/PPT/ODP, XLSX/XLS/ODS, CSV, Markdown, HTML, TXT, and corrupted/misnamed files. Legacy and ODF formats are produced by LibreOffice when it's available.
-- `npm test` runs 98 Vitest tests: operations, every conversion path, editor export, reopening and re-editing, API authorization, validation, retries, cancellation, cleanup and OCR.
-- `npm run test:e2e` runs 50 Playwright tests in installed Microsoft Edge (`E2E_CHANNEL=chrome` for Chrome): every tool through the real UI, the editor, signing, organize, forms, errors, a 60 MB upload and the mobile layout. Each test downloads and inspects the output file.
+- `npm test` runs the Vitest suite: operations, computer vision on synthetic photos with known page corners, every conversion path, editor export, reopening and re-editing, API authorization, validation, retries, cancellation, cleanup and OCR.
+- `npm run test:e2e` runs the Playwright suite in installed Microsoft Edge (`E2E_CHANNEL=chrome` for Chrome): every tool through the real UI, zoom gestures including real multi-touch pinch, the scanner driven by a simulated camera, the editor, signing, organize, forms, errors, a 60 MB upload and the mobile layout. Each test downloads and inspects the output file.
 
 ---
 
@@ -231,4 +240,4 @@ The job queue and file index are in memory, so run **one instance**. Scale up wi
 
 ## License notes
 
-MuPDF (`mupdf` npm package) is AGPL-3.0. If you offer Paperflow as a network service, AGPL requires you to provide the corresponding source code to users, or to obtain a commercial MuPDF licence from Artifex. LibreOffice is MPL-2.0, Tesseract is Apache-2.0, pdf-lib and PDF.js are MIT/Apache-2.0, and DejaVu fonts are free.
+MuPDF (`mupdf` npm package) is AGPL-3.0. If you offer Paperflow as a network service, AGPL requires you to provide the corresponding source code to users, or to obtain a commercial MuPDF licence from Artifex. LibreOffice is MPL-2.0, Tesseract and OpenCV are Apache-2.0, pdf-lib and PDF.js are MIT/Apache-2.0, and DejaVu fonts are free.

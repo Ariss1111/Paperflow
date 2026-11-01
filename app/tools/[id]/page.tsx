@@ -7,7 +7,7 @@ import { ToolRouter } from "./ToolRouter";
 type Props = { params: Promise<{ id: string }> };
 
 export function generateStaticParams() {
-  return TOOLS.filter((t) => t.id !== "convert").map((t) => ({ id: t.id }));
+  return TOOLS.filter((t) => t.id !== "convert" && t.id !== "scan").map((t) => ({ id: t.id }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -19,6 +19,7 @@ export default async function ToolPage({ params }: Props) {
   const { id } = await params;
   if (id === "convert") redirect("/convert");
   if (id === "edit") redirect("/editor");
+  if (id === "scan") redirect("/scan");
   const tool = getTool(id);
   if (!tool) notFound();
   return (

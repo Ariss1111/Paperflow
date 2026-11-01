@@ -1,7 +1,7 @@
 import {
   Combine, Scissors, LayoutGrid, RotateCw, FileMinus, FileOutput, FileX, Minimize2, Wrench, ArrowLeftRight,
   FileText, Presentation, Sheet, FileType, Image, Images, Code, PenLine, Signature, Stamp, Hash, PanelTop,
-  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare,
+  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare, ScanLine,
   type LucideProps,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,7 @@ import type { ToolCategory } from "@/lib/tools/catalog";
 const ICONS: Record<string, React.ComponentType<LucideProps>> = {
   Combine, Scissors, LayoutGrid, RotateCw, FileMinus, FileOutput, FileX, Minimize2, Wrench, ArrowLeftRight,
   FileText, Presentation, Sheet, FileType, Image, Images, Code, PenLine, Signature, Stamp, Hash, PanelTop,
-  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare,
+  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare, ScanLine,
 };
 
 export function Icon({ name, ...props }: { name: string } & LucideProps) {

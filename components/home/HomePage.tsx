@@ -24,7 +24,7 @@ import { useCapabilities } from "@/lib/client/capabilities";
 import { formatBytes, formatRelative, cn } from "@/lib/utils";
 import type { Job, StoredFile } from "@/types";
 
-const QUICK = ["merge", "convert", "edit", "compress", "sign"];
+const QUICK = ["scan", "merge", "convert", "edit", "compress", "sign"];
 
 function Section({ id, eyebrow, title, subtitle, children, className }: { id?: string; eyebrow?: string; title: string; subtitle?: string; children: React.ReactNode; className?: string }) {
   return (

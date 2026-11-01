@@ -18,6 +18,14 @@ try {
 } catch {
   // pdfjs-dist not installed yet
 }
+// OpenCV.js for the document scanner, served same-origin and loaded only inside its Web Worker
+try {
+  const cv = join(dirname(require.resolve("@techstark/opencv-js/package.json")), "dist", "opencv.js");
+  mkdirSync(join("public", "opencv"), { recursive: true });
+  if (existsSync(cv)) copyFileSync(cv, join("public", "opencv", "opencv.js"));
+} catch {
+  // not installed yet
+}
 const fonts = join("node_modules", "dejavu-fonts-ttf", "ttf");
 for (const f of ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "DejaVuSerif.ttf", "DejaVuSerif-Bold.ttf", "DejaVuSansMono.ttf", "DejaVuSansMono-Bold.ttf"]) {
   if (existsSync(join(fonts, f))) copyFileSync(join(fonts, f), join("public", "fonts", f));

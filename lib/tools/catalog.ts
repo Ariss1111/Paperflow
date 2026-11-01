@@ -42,7 +42,7 @@ export interface ToolDef {
   fixed?: Record<string, string>;
   options?: ToolOption[];
   /** Special workspace UI. */
-  ui?: "generic" | "editor" | "organize" | "fill-form" | "convert";
+  ui?: "generic" | "editor" | "organize" | "fill-form" | "convert" | "scanner";
   requires?: "libreoffice";
   /** Label of the primary action button. */
   action: string;
@@ -262,6 +262,20 @@ export const TOOLS: ToolDef[] = [
     maxFiles: 30,
     ui: "convert",
     action: "Start conversion",
+  },
+  {
+    id: "scan",
+    name: "Scan Document",
+    tagline: "Turn paper into a clean PDF with your camera",
+    description: "Point your camera at a document. Paperflow finds the page, crops it, flattens the perspective and cleans it up, right in your browser.",
+    category: "convert",
+    icon: "ScanLine",
+    accepts: IMAGE_INPUTS,
+    minFiles: 0,
+    maxFiles: 50,
+    ui: "scanner",
+    action: "Download PDF",
+    popular: true,
   },
   {
     id: "word-to-pdf",
@@ -801,5 +815,6 @@ export function getTool(id: string): ToolDef | undefined {
 export function toolHref(t: ToolDef): string {
   if (t.id === "edit") return "/editor";
   if (t.id === "convert") return "/convert";
+  if (t.id === "scan") return "/scan";
   return `/tools/${t.id}`;
 }

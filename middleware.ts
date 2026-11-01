@@ -28,5 +28,5 @@ export function middleware(req: NextRequest) {
 // API routes are excluded: middleware makes Next buffer request bodies (capped at 10 MB), which would
 // break streamed uploads. The cookie is issued on the first page load; APIs require it (401 otherwise).
 export const config = {
-  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|icon.svg|pdf.worker.min.mjs|pdfjs/|fonts/|__qa/).*)"],
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|icon.svg|pdf.worker.min.mjs|pdfjs/|fonts/|opencv/|scanner/).*)"],
 };
