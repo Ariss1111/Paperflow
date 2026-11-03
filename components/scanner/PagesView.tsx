@@ -3,11 +3,12 @@ import * as React from "react";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, rectSortingStrategy, arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { RotateCw, Trash2, Pencil, RefreshCcw, Plus, Download, ChevronDown, Loader2, ArrowRight } from "lucide-react";
+import { RotateCw, Trash2, Pencil, RefreshCcw, Plus, Download, ChevronDown, Loader2, ArrowRight, ScanText, TextSearch } from "lucide-react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import type { ScanPage } from "@/lib/scanner/client";
 import { Button, IconButton } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/controls";
+import { Field, Input, Select, Switch } from "@/components/ui/controls";
+import { OCR_LANGS, type OcrLang } from "@/lib/scanner/ocr";
 import { Badge, Notice, EmptyState } from "@/components/ui/feedback";
 import { cn } from "@/lib/utils";
 import { ScanLine } from "lucide-react";
@@ -39,6 +40,7 @@ function Tile({ page, index, busy, onRotate, onEdit, onRetake, onDelete }: { pag
       <div className="mt-2 flex items-center justify-between gap-1">
         <span className="pl-1 text-xs font-semibold tabular-nums text-ink-2">{index + 1}</span>
         {!page.detected && <Badge tone="warning">Check crop</Badge>}
+        {page.detected && page.ocr && <Badge tone="success">Text</Badge>}
         <div className="flex">
           <IconButton size="sm" label={`Rotate page ${index + 1}`} onClick={onRotate} disabled={busy}>
             <RotateCw className="size-3.5" />
@@ -73,6 +75,7 @@ export function PagesView({
   onAdd,
   onDownload,
   onContinue,
+  ocr,
 }: {
   pages: ScanPage[];
   title: string;
@@ -88,7 +91,18 @@ export function PagesView({
   onAdd: () => void;
   onDownload: () => void;
   onContinue: (href: string) => void;
+  ocr: {
+    lang: OcrLang;
+    onLang: (l: OcrLang) => void;
+    searchable: boolean;
+    onSearchable: (v: boolean) => void;
+    progress: { done: number; total: number } | null;
+    onRecognise: () => void;
+    onShowText: () => void;
+  };
 }) {
+  const recognised = pages.filter((p) => p.ocr?.lang === ocr.lang).length;
+  const allRecognised = pages.length > 0 && recognised === pages.length;
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
@@ -156,7 +170,48 @@ export function PagesView({
                 </Menu.Content>
               </Menu.Portal>
             </Menu.Root>
-            <p className="text-xs leading-4 text-ink-3">Scanning and the PDF happen on this device. A file is only uploaded if you choose Continue editing.</p>
+            <p className="text-xs leading-4 text-ink-3">Scanning, text recognition and the PDF happen on this device. A file is only uploaded if you choose Continue editing.</p>
+          </div>
+
+          <div className="mt-4 space-y-4 rounded-[18px] bg-surface p-5 shadow-card" aria-label="Text recognition">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Text recognition (OCR)</h2>
+              <p className="text-xs leading-4 text-ink-3">Find, select and copy the words on your pages.</p>
+            </div>
+            <Field label="Document language" htmlFor="ocr-lang">
+              <Select id="ocr-lang" value={ocr.lang} onChange={(e) => ocr.onLang(e.target.value as OcrLang)} disabled={!!ocr.progress}>
+                {OCR_LANGS.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="scan-searchable" className="text-sm text-ink">
+                Searchable PDF
+                <span className="block text-xs text-ink-3">Adds the recognised text to the PDF</span>
+              </label>
+              <Switch id="scan-searchable" checked={ocr.searchable} onCheckedChange={ocr.onSearchable} />
+            </div>
+            {ocr.progress ? (
+              <div aria-live="polite" className="space-y-1.5">
+                <p className="flex items-center gap-2 text-sm text-ink-2">
+                  <Loader2 className="size-3.5 animate-spin" /> Recognising page {Math.min(ocr.progress.done + 1, ocr.progress.total)} of {ocr.progress.total}…
+                </p>
+                <div className="h-1 overflow-hidden rounded-full bg-ink/10">
+                  <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${(ocr.progress.done / ocr.progress.total) * 100}%` }} />
+                </div>
+              </div>
+            ) : allRecognised ? (
+              <Button className="w-full" icon={<TextSearch className="size-4" />} onClick={ocr.onShowText}>
+                View, search and copy text
+              </Button>
+            ) : (
+              <Button className="w-full" icon={<ScanText className="size-4" />} disabled={!pages.length || !!exporting} onClick={ocr.onRecognise}>
+                {recognised ? `Recognise remaining ${pages.length - recognised}` : "Recognise text"}
+              </Button>
+            )}
           </div>
         </aside>
       </div>

@@ -12,6 +12,10 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Render passes these in at build time; page metadata (social previews) needs the public address
+ARG APP_URL
+ARG RENDER_EXTERNAL_URL
+ARG NEXT_PUBLIC_APP_NAME
 RUN node scripts/copy-pdf-worker.mjs && npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim AS run

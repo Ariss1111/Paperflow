@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Container, PageHeader } from "@/components/shell/AppShell";
 import { APP_NAME } from "@/lib/brand";
 
-export const metadata: Metadata = { title: "Terms" };
+export const metadata: Metadata = { title: "Terms of use", description: "The terms for using this Pagelyt site." };
 
 export default function TermsPage() {
   return (
@@ -18,7 +19,9 @@ export default function TermsPage() {
         <h2 id="contact" className="scroll-mt-20 pt-2 text-lg font-semibold text-ink">
           Contact
         </h2>
-        <p>Questions about this deployment should go to its operator. Set a contact address for your installation in this page (app/terms/page.tsx).</p>
+        <p>
+          Questions about these terms go to the people who run this site: see the <Link href="/contact" className="text-accent hover:underline">contact page</Link>.
+        </p>
       </div>
     </Container>
   );

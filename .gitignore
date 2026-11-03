@@ -15,3 +15,7 @@ public/__qa/
 public/pdfjs/
 .claude/
 public/opencv/
+public/tesseract/
+
+# generated knowledge graph (regenerate with /graphify)
+graphify-out/

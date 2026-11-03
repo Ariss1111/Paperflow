@@ -31,6 +31,23 @@ export function assertSameOrigin(req: NextRequest) {
   }
 }
 
+// ------------------------------------------------------------------ behind a proxy (Render, Cloudflare)
+
+/** True when the visitor reached us over HTTPS, including through a TLS-terminating proxy. */
+export function isHttps(req: NextRequest): boolean {
+  const fwd = req.headers.get("x-forwarded-proto")?.split(",")[0].trim();
+  return fwd === "https" || req.nextUrl.protocol === "https:";
+}
+
+/**
+ * The visitor's IP for rate limiting. The *last* X-Forwarded-For entry is the one our own proxy
+ * added; earlier entries come from the client and can be forged.
+ */
+export function clientIp(req: NextRequest): string {
+  const hops = (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return hops.at(-1) || req.headers.get("x-real-ip") || "local";
+}
+
 // ------------------------------------------------------------------ rate limiting (per session, sliding window)
 
 const g = globalThis as unknown as { __pfRate?: Map<string, number[]> };

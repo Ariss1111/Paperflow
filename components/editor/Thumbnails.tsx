@@ -11,7 +11,7 @@ import { uid } from "./useEditorState";
 import type { EditorApi } from "./useEditorState";
 import { cn } from "@/lib/utils";
 
-function Thumb({ page, index, fileId, active, onGo, onRotate, onDuplicate, onDelete, canDelete }: { page: EditPage; index: number; fileId: string; active: boolean; onGo: () => void; onRotate: () => void; onDuplicate: () => void; onDelete: () => void; canDelete: boolean }) {
+function Thumb({ page, index, fileId, active, selected, onSelect, onGo, onRotate, onDuplicate, onDelete, canDelete }: { page: EditPage; index: number; fileId: string; active: boolean; selected: boolean; onSelect: (on: boolean) => void; onGo: () => void; onRotate: () => void; onDuplicate: () => void; onDelete: () => void; canDelete: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: page.key });
   return (
     <li ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={cn("group relative flex flex-col items-center gap-1.5 rounded-xl p-2", isDragging && "z-10 opacity-80")}>
@@ -27,6 +27,9 @@ function Thumb({ page, index, fileId, active, onGo, onRotate, onDuplicate, onDel
         <PageThumb fileId={fileId} page={page.src + 1} rotation={page.rotate} width={96} />
       </button>
       <span className={cn("text-2xs font-medium tabular-nums", active ? "text-accent" : "text-ink-3")}>{index + 1}</span>
+      <label className={cn("absolute left-1 top-1 flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity", selected ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover:opacity-100")}>
+        <input type="checkbox" checked={selected} onChange={(e) => onSelect(e.target.checked)} aria-label={`Select page ${index + 1}`} className="size-4 cursor-pointer accent-[rgb(var(--accent))]" />
+      </label>
       <div className="glass absolute right-1 top-1 flex flex-col rounded-lg opacity-0 shadow-card transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <IconButton size="sm" label={`Rotate page ${index + 1}`} onClick={onRotate}>
           <RotateCw className="size-3.5" />
@@ -44,7 +47,7 @@ function Thumb({ page, index, fileId, active, onGo, onRotate, onDuplicate, onDel
   );
 }
 
-export function Thumbnails({ doc, editor, fileId, current, onGo, onDeletePage }: { doc: EditDocument; editor: EditorApi; fileId: string; current: string | null; onGo: (key: string) => void; onDeletePage: (key: string) => void }) {
+export function Thumbnails({ doc, editor, fileIdFor, current, selected, onSelect, onGo, onDeletePage }: { doc: EditDocument; editor: EditorApi; fileIdFor: (p: EditPage) => string; current: string | null; selected: Set<string>; onSelect: (key: string, on: boolean) => void; onGo: (key: string) => void; onDeletePage: (key: string) => void }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
@@ -61,8 +64,10 @@ export function Thumbnails({ doc, editor, fileId, current, onGo, onDeletePage }:
               key={p.key}
               page={p}
               index={i}
-              fileId={fileId}
+              fileId={fileIdFor(p)}
               active={p.key === current}
+              selected={selected.has(p.key)}
+              onSelect={(on) => onSelect(p.key, on)}
               onGo={() => onGo(p.key)}
               canDelete={doc.pages.length > 1}
               onRotate={() => editor.setPages(doc.pages.map((x) => (x.key === p.key ? { ...x, rotate: (x.rotate + 90) % 360 } : x)))}

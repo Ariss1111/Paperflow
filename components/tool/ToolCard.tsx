@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, withQuery } from "@/lib/utils";
 import { toolHref, type ToolDef } from "@/lib/tools/catalog";
 import { ToolGlyph } from "@/components/ToolIcon";
 import { Badge } from "@/components/ui/feedback";
@@ -9,8 +9,8 @@ import { useCapabilities } from "@/lib/client/capabilities";
 
 export function ToolCard({ tool, query, compact }: { tool: ToolDef; query?: string; compact?: boolean }) {
   const caps = useCapabilities();
-  const unavailable = tool.requires === "libreoffice" && caps && !caps.libreoffice.available;
-  const href = toolHref(tool) + (query ?? "");
+  const unavailable = !!caps && ((tool.requires === "libreoffice" && !caps.libreoffice.available) || (tool.ui === "ai" && !caps.ai.available));
+  const href = withQuery(toolHref(tool), query ?? "");
   if (compact) {
     return (
       <Link

@@ -1,9 +1,11 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileDown, ArrowRight, RotateCcw, CheckCircle2, AlertCircle, ChevronDown, FileArchive, X } from "lucide-react";
+import { Download, FileDown, ArrowRight, RotateCcw, CheckCircle2, AlertCircle, ChevronDown, FileArchive, X, Cloud, Check } from "lucide-react";
+import { useAccount } from "@/lib/client/account";
+import { cloudApi } from "@/lib/client/cloud";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn, formatBytes, withQuery } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress, Notice, toast } from "@/components/ui/feedback";
 import { api, download } from "@/lib/client/api";
@@ -126,7 +128,7 @@ function ContinueMenu({ job, index }: { job: Job; index: number }) {
   const go = async (href: string) => {
     try {
       const { file } = await api.useOutput(job.id, index);
-      router.push(`${href}?files=${file.id}`);
+      router.push(withQuery(href, `files=${file.id}`));
     } catch (e) {
       toast((e as Error).message, "danger");
     }
@@ -150,6 +152,36 @@ function ContinueMenu({ job, index }: { job: Job; index: number }) {
         </Menu.Content>
       </Menu.Portal>
     </Menu.Root>
+  );
+}
+
+/** For signed-in users: keep a tool's result in My Documents. */
+function SaveToCloud({ job, index, name }: { job: Job; index: number; name: string }) {
+  const { user } = useAccount();
+  const [state, setState] = React.useState<"idle" | "saving" | "saved">("idle");
+  if (!user?.verified) return null;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      aria-label={`Save ${name} to My Documents`}
+      disabled={state !== "idle"}
+      icon={state === "saved" ? <Check className="size-3.5" /> : <Cloud className="size-3.5" />}
+      onClick={async () => {
+        setState("saving");
+        try {
+          const { file } = await api.useOutput(job.id, index);
+          await cloudApi.save(file.id);
+          setState("saved");
+          toast(`“${name}” saved to My Documents.`, "success");
+        } catch (e) {
+          setState("idle");
+          toast((e as Error).message, "danger");
+        }
+      }}
+    >
+      {state === "saved" ? "Saved" : "Save"}
+    </Button>
   );
 }
 
@@ -201,6 +233,7 @@ export function Result({ job, onStartOver }: { job: Job; onStartOver: () => void
             </span>
             <span className="shrink-0 text-xs tabular-nums text-ink-3">{formatBytes(o.size)}</span>
             <ContinueMenu job={job} index={o.index} />
+            <SaveToCloud job={job} index={o.index} name={o.name} />
             <Button size="sm" onClick={() => download(api.downloadUrl(job.id, o.index))} aria-label={`Download ${o.name}`}>
               Download
             </Button>

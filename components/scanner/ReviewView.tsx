@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const MODES: { id: ScanMode; label: string }[] = [
   { id: "color", label: "Enhanced" },
   { id: "original", label: "Original" },
+  { id: "contrast", label: "High contrast" },
   { id: "gray", label: "Grayscale" },
   { id: "bw", label: "Black & White" },
 ];
@@ -116,7 +117,7 @@ export function ReviewView({
         {(error || renderError) && <Notice tone="danger">{error ?? renderError}</Notice>}
         <div>
           <p className="eyebrow mb-2">Look</p>
-          <div role="radiogroup" aria-label="Enhancement mode" className="grid grid-cols-4 gap-2">
+          <div role="radiogroup" aria-label="Enhancement mode" className="grid grid-cols-5 gap-1.5">
             {MODES.map((m) => (
               <button
                 key={m.id}
@@ -130,7 +131,7 @@ export function ReviewView({
                 <span className={cn("flex aspect-[3/4] items-center justify-center overflow-hidden rounded-lg bg-surface-2 transition-shadow", page.mode === m.id ? "ring-2 ring-accent ring-offset-2 ring-offset-surface" : "shadow-hairline group-hover:shadow-card")}>
                   {thumbs[m.id] ? <ImageCanvas img={thumbs[m.id]!} className="max-h-full max-w-full bg-white" /> : <Loader2 className="size-3.5 animate-spin text-ink-3" />}
                 </span>
-                <span className={cn("mt-1.5 block truncate text-2xs font-medium", page.mode === m.id ? "text-accent" : "text-ink-2")}>{m.label}</span>
+                <span className={cn("mt-1.5 block text-2xs font-medium leading-[1.2]", page.mode === m.id ? "text-accent" : "text-ink-2")}>{m.label}</span>
               </button>
             ))}
           </div>

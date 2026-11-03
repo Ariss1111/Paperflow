@@ -1,15 +1,16 @@
 // Client-safe tool catalog. Each tool maps to exactly one server processor (lib/server/processors).
 import { IMAGE_INPUTS, type FormatId } from "@/lib/formats";
 
-export type ToolCategory = "organize" | "optimize" | "convert" | "edit" | "security" | "extract";
+export type ToolCategory = "organize" | "optimize" | "convert" | "edit" | "scan" | "secure" | "ai";
 
 export const CATEGORIES: { id: ToolCategory; label: string; blurb: string }[] = [
-  { id: "organize", label: "Organize", blurb: "Merge, split, reorder and rotate pages" },
-  { id: "edit", label: "Edit & Sign", blurb: "Annotate, sign, stamp and fill" },
-  { id: "convert", label: "Convert", blurb: "Office, images, text and back" },
-  { id: "optimize", label: "Optimize", blurb: "Compress and repair" },
-  { id: "security", label: "Security", blurb: "Passwords and metadata" },
-  { id: "extract", label: "Extract & Analyze", blurb: "Text, images, OCR and compare" },
+  { id: "organize", label: "Organize PDF", blurb: "Merge, split, reorder and compare" },
+  { id: "optimize", label: "Optimize PDF", blurb: "Compress and repair" },
+  { id: "convert", label: "Convert PDF", blurb: "Office, images, text and back" },
+  { id: "edit", label: "Edit PDF", blurb: "Annotate, stamp, fill and reshape" },
+  { id: "scan", label: "Scan Documents", blurb: "Camera scans and text recognition" },
+  { id: "secure", label: "Sign and Protect", blurb: "Signatures, passwords and metadata" },
+  { id: "ai", label: "AI Document Tools", blurb: "Summarize, ask, translate and extract" },
 ];
 
 type Base = { key: string; label: string; hint?: string; showIf?: { key: string; in: string[] } };
@@ -42,7 +43,7 @@ export interface ToolDef {
   fixed?: Record<string, string>;
   options?: ToolOption[];
   /** Special workspace UI. */
-  ui?: "generic" | "editor" | "organize" | "fill-form" | "convert" | "scanner";
+  ui?: "generic" | "editor" | "organize" | "fill-form" | "convert" | "scanner" | "ai";
   requires?: "libreoffice";
   /** Label of the primary action button. */
   action: string;
@@ -254,7 +255,7 @@ export const TOOLS: ToolDef[] = [
     id: "convert",
     name: "Convert",
     tagline: "Any supported format to any other",
-    description: "Pick a target format; Paperflow shows only conversions that are actually supported for your file.",
+    description: "Pick a target format; Pagelyt shows only conversions that are actually supported for your file.",
     category: "convert",
     icon: "ArrowLeftRight",
     accepts: ["pdf", ...IMAGE_INPUTS, "docx", "doc", "pptx", "ppt", "xlsx", "xls", "odt", "ods", "odp", "rtf", "html", "md", "txt", "csv"],
@@ -267,8 +268,8 @@ export const TOOLS: ToolDef[] = [
     id: "scan",
     name: "Scan Document",
     tagline: "Turn paper into a clean PDF with your camera",
-    description: "Point your camera at a document. Paperflow finds the page, crops it, flattens the perspective and cleans it up, right in your browser.",
-    category: "convert",
+    description: "Point your camera at a document. Pagelyt finds the page, crops it, flattens the perspective and cleans it up, right in your browser.",
+    category: "scan",
     icon: "ScanLine",
     accepts: IMAGE_INPUTS,
     minFiles: 0,
@@ -467,7 +468,7 @@ export const TOOLS: ToolDef[] = [
     name: "Sign PDF",
     tagline: "Draw, type or upload a signature",
     description: "Place a visual signature, date and text fields on any page. This is a visual signature, not a cryptographic digital signature.",
-    category: "edit",
+    category: "secure",
     icon: "Signature",
     accepts: ["pdf"],
     minFiles: 1,
@@ -672,7 +673,7 @@ export const TOOLS: ToolDef[] = [
     name: "Protect PDF",
     tagline: "Encrypt with a password",
     description: "Encrypt the PDF with AES-256. Anyone opening it will need the password.",
-    category: "security",
+    category: "secure",
     icon: "Lock",
     accepts: ["pdf"],
     minFiles: 1,
@@ -692,7 +693,7 @@ export const TOOLS: ToolDef[] = [
     name: "Unlock PDF",
     tagline: "Remove a password you know",
     description: "Removes encryption from a PDF when you provide its correct password. Only unlock documents you are authorised to access.",
-    category: "security",
+    category: "secure",
     icon: "LockOpen",
     accepts: ["pdf"],
     minFiles: 1,
@@ -705,7 +706,7 @@ export const TOOLS: ToolDef[] = [
     name: "PDF Metadata",
     tagline: "View, edit or remove document properties",
     description: "Inspect title, author, producer and dates; change them, or strip all metadata (Info dictionary and XMP).",
-    category: "security",
+    category: "secure",
     icon: "Info",
     accepts: ["pdf"],
     minFiles: 1,
@@ -737,7 +738,7 @@ export const TOOLS: ToolDef[] = [
     tagline: "Make scans searchable",
     description:
       "Recognise text in scanned PDFs and images. Produces a searchable PDF with the original scan preserved underneath an invisible text layer, or plain text.",
-    category: "extract",
+    category: "scan",
     icon: "ScanText",
     accepts: ["pdf", ...IMAGE_INPUTS],
     minFiles: 1,
@@ -770,7 +771,7 @@ export const TOOLS: ToolDef[] = [
     name: "Extract Text",
     tagline: "Get the text out of a PDF",
     description: "Export the text layer as plain text, optionally with page separators.",
-    category: "extract",
+    category: "convert",
     icon: "TextSelect",
     accepts: ["pdf"],
     minFiles: 1,
@@ -783,7 +784,7 @@ export const TOOLS: ToolDef[] = [
     name: "Extract Images",
     tagline: "Save every embedded image",
     description: "Exports the images embedded in a PDF at their native resolution as PNG or JPG.",
-    category: "extract",
+    category: "convert",
     icon: "ImageDown",
     accepts: ["pdf"],
     minFiles: 1,
@@ -796,7 +797,7 @@ export const TOOLS: ToolDef[] = [
     name: "Compare PDFs",
     tagline: "See what changed between two versions",
     description: "Produces a report of text changes per page and a visual overlay highlighting pixels that differ.",
-    category: "extract",
+    category: "organize",
     icon: "GitCompare",
     accepts: ["pdf"],
     minFiles: 2,
@@ -805,6 +806,77 @@ export const TOOLS: ToolDef[] = [
     action: "Compare",
   },
 ];
+
+// AI tools are listed in the catalog for search and navigation; they run in the AI Workspace (/ai).
+const AI_ACCEPTS: FormatId[] = ["pdf", "jpg", "png", "webp", "gif"];
+TOOLS.push(
+  {
+    id: "ai-summarize",
+    name: "Summarize",
+    tagline: "The key points of any document",
+    description: "A concise summary with the main points, decisions and numbers, written by Claude.",
+    category: "ai",
+    icon: "Sparkles",
+    accepts: AI_ACCEPTS,
+    minFiles: 1,
+    maxFiles: 1,
+    ui: "ai",
+    action: "Summarize",
+    popular: false,
+  },
+  {
+    id: "ai-ask",
+    name: "Ask your PDF",
+    tagline: "Chat with a document",
+    description: "Ask questions and get answers grounded in the document, with page references.",
+    category: "ai",
+    icon: "MessagesSquare",
+    accepts: AI_ACCEPTS,
+    minFiles: 1,
+    maxFiles: 1,
+    ui: "ai",
+    action: "Ask",
+  },
+  {
+    id: "ai-translate",
+    name: "Translate",
+    tagline: "Read a document in your language",
+    description: "Translates the document's text while keeping its headings, lists and tables.",
+    category: "ai",
+    icon: "Languages",
+    accepts: AI_ACCEPTS,
+    minFiles: 1,
+    maxFiles: 1,
+    ui: "ai",
+    action: "Translate",
+  },
+  {
+    id: "ai-extract",
+    name: "Extract Key Info",
+    tagline: "Invoices, names, dates, prices, tables",
+    description: "Pulls out invoice numbers, names, addresses, dates, prices, tables, contacts and key clauses, each with its page, ready to export as CSV or JSON.",
+    category: "ai",
+    icon: "ListChecks",
+    accepts: AI_ACCEPTS,
+    minFiles: 1,
+    maxFiles: 1,
+    ui: "ai",
+    action: "Extract",
+  },
+  {
+    id: "ai-compare",
+    name: "Compare Documents",
+    tagline: "Every change, highlighted and explained",
+    description: "Shows reworded, added and removed paragraphs, changed dates and numbers, and formatting changes between two versions, with an optional AI explanation.",
+    category: "ai",
+    icon: "GitCompare",
+    accepts: ["pdf"],
+    minFiles: 1,
+    maxFiles: 2,
+    ui: "ai",
+    action: "Compare",
+  },
+);
 
 export const TOOL_MAP: Record<string, ToolDef> = Object.fromEntries(TOOLS.map((t) => [t.id, t]));
 
@@ -816,5 +888,6 @@ export function toolHref(t: ToolDef): string {
   if (t.id === "edit") return "/editor";
   if (t.id === "convert") return "/convert";
   if (t.id === "scan") return "/scan";
+  if (t.ui === "ai") return `/ai?task=${t.id.slice(3)}`;
   return `/tools/${t.id}`;
 }

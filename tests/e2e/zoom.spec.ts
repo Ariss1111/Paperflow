@@ -59,11 +59,17 @@ test("buttons, typed percentage, presets, fit width, fit page and reset", async 
   await expect.poll(async () => (await scrollPos(page)).maxLeft).toBeLessThanOrEqual(1);
   const widthFit = await percent(page);
 
+  await setZoom(page, "300");
   await page.getByRole("button", { name: /^Fit to page/ }).click();
-  await expect.poll(() => percent(page)).not.toBe(widthFit);
-  const box = (await first.boundingBox())!;
-  const s = await scrollPos(page);
-  expect(box.height).toBeLessThanOrEqual(s.h);
+  await expect.poll(() => percent(page)).toBeLessThanOrEqual(widthFit);
+  // the page shown in the page box fits inside the viewer, both ways, and is in view
+  const current = page.locator("[data-page-key]").nth(Number(await page.getByLabel("Page number").inputValue()) - 1);
+  const viewer = (await scroller(page).boundingBox())!;
+  await expect.poll(async () => (await current.boundingBox())!.height <= viewer.height).toBe(true);
+  const b = (await current.boundingBox())!;
+  expect(b.width).toBeLessThanOrEqual(viewer.width);
+  expect(b.y).toBeGreaterThanOrEqual(viewer.y - 1);
+  expect(b.y + b.height).toBeLessThanOrEqual(viewer.y + viewer.height + 1);
 
   await page.getByRole("button", { name: /^Reset zoom/ }).click();
   await expect.poll(() => percent(page)).toBe(100);
@@ -192,9 +198,9 @@ test("editing while zoomed puts objects in the right place in the exported PDF",
   await page.mouse.click(clickAt.x, clickAt.y);
   await page.keyboard.type("Zoomed note");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: /Export/ }).first().click();
-  await expect(page.getByText(/Your file is ready/)).toBeVisible({ timeout: 120_000 });
-  const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /^Download PDF$/ }).click()]);
+  // Download exports for real and saves the file once it exists
+  const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), page.getByRole("button", { name: "Download PDF", exact: true }).first().click()]);
+  await expect(page.getByText(/Your file is ready/)).toBeVisible();
   const bytes = new Uint8Array(fs.readFileSync((await dl.path())!));
   expect(texts(bytes)[0]).toContain("Zoomed note");
   const pg = pdf(bytes).loadPage(0);

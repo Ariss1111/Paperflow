@@ -6,6 +6,7 @@ import { scannerConfigured } from "@/lib/server/scan";
 import { env } from "@/lib/server/env";
 import { CONVERSIONS } from "@/lib/conversion/catalog";
 import { conversionAvailable } from "@/lib/conversion/registry";
+import { aiConfigured, aiProviderLabel, AI_MODEL } from "@/lib/server/ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export const GET = route(async () => {
     libreoffice: { available: !!sofficePath(), version: await sofficeVersion() },
     ocr: { languages: ocrLanguages().map((code) => ({ code, name: LANG_NAMES[code] ?? code })) },
     malwareScanning: scannerConfigured(),
+    ai: { available: aiConfigured(), model: aiConfigured() ? AI_MODEL : null, provider: aiConfigured() ? aiProviderLabel() : null },
     limits: { maxUploadBytes: env.maxUploadBytes, maxFilesPerRequest: env.maxFilesPerRequest, retentionMinutes: Math.round(env.retentionMs / 60000) },
     conversions: CONVERSIONS.map((c) => ({ id: c.id, available: conversionAvailable(c) })),
   });

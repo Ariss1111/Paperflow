@@ -59,7 +59,7 @@ export async function pdfToDocx(bytes: Uint8Array, signal?: AbortSignal, onPage?
   }
   const first = pages[0];
   const document = new Document({
-    creator: "Paperflow",
+    creator: "Pagelyt",
     sections: [
       {
         properties: {

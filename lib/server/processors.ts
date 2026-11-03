@@ -219,11 +219,20 @@ export const PROCESSORS: Record<string, Processor> = {
     const edit = ctx.options.edit as EditDocument;
     ctx.progress(null, "Applying edits…");
     const images = new Map<string, Uint8Array>();
-    for (const f of rest) images.set(f.id, await f.read());
-    const r = await applyEdits(await pdf.read(), edit, { images });
+    const pdfs = new Map<string, Uint8Array>();
+    for (const f of rest) (f.format === "pdf" ? pdfs : images).set(f.id, await f.read());
+    const only = Array.isArray(ctx.options.only) ? (ctx.options.only as unknown[]).filter((k): k is string => typeof k === "string") : undefined;
+    const r = await applyEdits(await pdf.read(), edit, { images, pdfs }, { only });
     Object.assign(ctx.summary, r.stats);
     const suffix = str(ctx.options, "suffix", "edited").replace(/[^a-z-]/gi, "") || "edited";
-    await ctx.emit(`${baseName(pdf.name)}-${suffix}.pdf`, r.bytes, PDF);
+    const stem = `${baseName(pdf.name)}-${suffix}`;
+    const split = str(ctx.options, "split").trim();
+    if (split) {
+      // split the edited document by page ranges: one PDF per range
+      const parts = await ops.splitByRanges(r.bytes, split);
+      for (const p of parts) await ctx.emit(`${stem}-p${describeRange(p.range)}.pdf`, p.bytes, PDF);
+      ctx.summary.files = parts.length;
+    } else await ctx.emit(`${stem}.pdf`, r.bytes, PDF);
   },
 
   async watermark(ctx) {

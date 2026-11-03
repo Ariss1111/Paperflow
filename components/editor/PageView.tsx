@@ -1,7 +1,8 @@
 "use client";
 import * as React from "react";
 import type { PDFDocumentProxy, PDFPageProxy, PageViewport, RenderTask } from "pdfjs-dist";
-import type { EditObject, EditPage, Rect, TextObj, ReplaceObj, FontId } from "@/lib/editor/model";
+import type { EditObject, EditPage, Rect, TextObj, ReplaceObj, FontId, WatermarkSettings, PageNumberSettings } from "@/lib/editor/model";
+import { StampPreview } from "./StampDialogs";
 import { ObjectView } from "./ObjectView";
 import { rectToView, pointToPdf, viewRectToPdf, textItems, clipItem, intersects, type TextItem } from "./geometry";
 import { measureText } from "./fonts";
@@ -101,6 +102,7 @@ export const PageView = React.memo(function PageView({
   onToolDone,
   getText,
   registerView,
+  stamps,
 }: {
   pdf: PDFDocumentProxy;
   page: EditPage;
@@ -115,7 +117,8 @@ export const PageView = React.memo(function PageView({
   onSelect: (id: string | null) => void;
   onEdit: (id: string | null) => void;
   onToolDone: () => void;
-  getText: (src: number) => Promise<TextItem[]>;
+  getText: (page: EditPage) => Promise<TextItem[]>;
+  stamps?: { watermark?: WatermarkSettings | null; pageNumbers?: PageNumberSettings | null; total: number };
   registerView: (key: string, el: HTMLElement | null, vp: PageViewport | null) => void;
 }) {
   const root = React.useRef<HTMLDivElement>(null);
@@ -193,8 +196,8 @@ export const PageView = React.memo(function PageView({
 
   React.useEffect(() => {
     if (!textTools || !visible || items) return;
-    getText(page.src).then(setItems).catch(() => setItems([]));
-  }, [textTools, visible, items, getText, page.src]);
+    getText(page).then(setItems).catch(() => setItems([]));
+  }, [textTools, visible, items, getText, page]);
 
   const local = (e: React.PointerEvent | PointerEvent): [number, number] => {
     const r = root.current!.getBoundingClientRect();
@@ -472,6 +475,7 @@ export const PageView = React.memo(function PageView({
           ))}
         </div>
       )}
+      {vp && stamps && <StampPreview watermark={stamps.watermark} pageNumbers={stamps.pageNumbers} index={index} total={stamps.total} scale={vp.scale} width={vp.width} height={vp.height} />}
       {draft && vp && <DraftView drag={draft} vp={vp} style={style} />}
     </div>
   );

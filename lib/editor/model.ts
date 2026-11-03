@@ -104,7 +104,9 @@ export type EditObjectType = EditObject["type"];
 
 export interface EditPage {
   key: string;
-  /** zero-based index of the source page in the original PDF */
+  /** which PDF the page comes from: 0 = the document being edited, n = EditDocument.sources[n - 1] */
+  file?: number;
+  /** zero-based index of the page in that PDF */
   src: number;
   /** extra clockwise rotation applied by the user (0/90/180/270) */
   rotate: number;
@@ -115,6 +117,27 @@ export interface EditDocument {
   pages: EditPage[];
   objects: EditObject[];
   flattenAnnotations?: boolean;
+  /** file ids of other PDFs whose pages were added (merged PDFs, generated blank pages) */
+  sources?: string[];
+  /** stamped on every page at export */
+  watermark?: WatermarkSettings | null;
+  pageNumbers?: PageNumberSettings | null;
+}
+
+export interface WatermarkSettings {
+  text: string;
+  size: number;
+  color: string;
+  opacity: number; // 0..1
+  angle: number;
+  position: "center" | "tile";
+}
+
+export interface PageNumberSettings {
+  position: "bottom-center" | "bottom-right" | "bottom-left" | "top-center" | "top-right" | "top-left";
+  format: string;
+  start: number;
+  size: number;
 }
 
 /** Which objects change existing content vs. add on top — shown in the editor UI. */

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { PDFDocumentProxy, PageViewport } from "pdfjs-dist";
 import {
   MousePointer2, Type, TextCursorInput, Highlighter, Underline, Strikethrough, PenLine, Square, Circle, Minus, MoveUpRight, MessageSquare,
-  Eraser, Image as ImageIcon, Signature, CalendarDays, Undo2, Redo2, Hand, Download, ChevronLeft, PanelLeft, PanelRight, MoreHorizontal, X, Loader2,
+  Eraser, Image as ImageIcon, Signature, CalendarDays, Undo2, Redo2, Hand, Download, Save, Files, Stamp, Maximize2, Minimize2, Keyboard, FilePlus2, FileOutput, Scissors, File as FileBlank, Hash, ChevronLeft, PanelLeft, PanelRight, MoreHorizontal, X, Loader2,
 } from "lucide-react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { getTool } from "@/lib/tools/catalog";
@@ -20,15 +20,20 @@ import { Button, IconButton } from "@/components/ui/button";
 import { Notice, toast } from "@/components/ui/feedback";
 import { Sheet, useConfirm } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/controls";
-import { api } from "@/lib/client/api";
+import { api, download, uploadFiles } from "@/lib/client/api";
+import { call, useAccount } from "@/lib/client/account";
 import { loadPdf } from "@/lib/client/pdfjs";
-import type { EditDocument, EditObject, TextObj } from "@/lib/editor/model";
+import type { EditDocument, EditObject, EditPage, TextObj } from "@/lib/editor/model";
 import { useEditorState, initialDoc, loadSaved, clearSaved, uid } from "./useEditorState";
 import { PageView, fitText, translate, type ToolId, type ToolStyle } from "./PageView";
 import { Inspector } from "./Inspector";
 import { Thumbnails } from "./Thumbnails";
 import { SignatureDialog } from "./SignatureDialog";
 import { ZoomBar, MIN_ZOOM, MAX_ZOOM } from "./ZoomBar";
+import { WatermarkDialog, PageNumbersDialog } from "./StampDialogs";
+import { ShortcutsDialog } from "./ShortcutsDialog";
+import { parseRanges } from "@/lib/pdf/pages";
+import { Input, Field } from "@/components/ui/controls";
 import { loadEditorFonts } from "./fonts";
 import { textItems, pointToPdf, type TextItem } from "./geometry";
 import { cn } from "@/lib/utils";
@@ -68,6 +73,8 @@ const EDIT_TOOLS: ToolDefn[][] = [
   ],
   [{ id: "erase", label: "Erase area (removes content)", icon: Eraser, key: "X" }],
 ];
+const MENU_ITEM = "flex cursor-default items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-ink outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-accent data-[highlighted]:text-white";
+
 const SIGN_TOOLS: ToolDefn[][] = [[{ id: "select", label: "Select", icon: MousePointer2, key: "V" }, { id: "hand", label: "Pan (or hold Space)", icon: Hand, key: "P" }], [{ id: "text", label: "Add text", icon: Type, key: "T" }]];
 
 const DEFAULT_STYLE: ToolStyle = { color: "#1d1d1f", stroke: "#d70015", fill: null, width: 2, size: 14, font: "sans", bold: false, opacity: 1, highlight: "#ffd60a" };
@@ -119,10 +126,20 @@ export function EditorPage({ mode }: { mode: "edit" | "sign" }) {
       </Container>
     );
   }
-  return <Workspace key={file.id} file={file} mode={mode} onClose={() => setFiles([])} />;
+  return <Workspace key={file.id} file={file} mode={mode} onClose={() => setFiles([])} onReplace={(f) => setFiles([f])} />;
 }
 
-function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "sign"; onClose: () => void }) {
+type ExportKind = "download" | "save" | "extract" | "split";
+
+/** A one-page blank PDF of the given size, made in the browser (then added like any merged PDF). */
+async function blankPdf(width: number, height: number): Promise<File> {
+  const { PDFDocument } = await import("pdf-lib");
+  const doc = await PDFDocument.create();
+  doc.addPage([width, height]);
+  return new File([(await doc.save()) as Uint8Array<ArrayBuffer>], `blank-page-${Math.round(width)}x${Math.round(height)}.pdf`, { type: "application/pdf" });
+}
+
+function Workspace({ file, mode, onClose, onReplace }: { file: StoredFile; mode: "edit" | "sign"; onClose: () => void; onReplace: (f: StoredFile) => void }) {
   const router = useRouter();
   const editor = useEditorState(file.id);
   const { doc } = editor;
@@ -148,7 +165,22 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
   const gesture = React.useRef<ZoomGesture | null>(null);
   const panning = React.useRef<{ x: number; y: number; left: number; top: number; id: number } | null>(null);
   const views = React.useRef(new Map<string, { el: HTMLElement; vp: PageViewport }>());
-  const textCache = React.useRef(new Map<number, Promise<TextItem[]>>());
+  const textCache = React.useRef(new Map<string, Promise<TextItem[]>>());
+  const account = useAccount();
+  const [extra, setExtra] = React.useState<Record<string, PDFDocumentProxy>>({});
+  const [selectedPages, setSelectedPages] = React.useState<Set<string>>(new Set());
+  const [exportKind, setExportKind] = React.useState<ExportKind>("download");
+  const [wmOpen, setWmOpen] = React.useState(false);
+  const [pnOpen, setPnOpen] = React.useState(false);
+  const [splitOpen, setSplitOpen] = React.useState(false);
+  const [splitRanges, setSplitRanges] = React.useState("");
+  const [splitError, setSplitError] = React.useState<string | null>(null);
+  const [keysOpen, setKeysOpen] = React.useState(false);
+  const [fullscreen, setFullscreen] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const pdfInput = React.useRef<HTMLInputElement>(null);
+  const blankCache = React.useRef(new Map<string, StoredFile>());
   const imageInput = React.useRef<HTMLInputElement>(null);
   const job = useJob();
   const { confirm, element: confirmEl } = useConfirm();
@@ -162,7 +194,7 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
         if (!live) return;
         setPdf(p);
         const saved = loadSaved(file.id);
-        if (saved && saved.pages.every((pg) => pg.src < p.numPages)) {
+        if (saved && saved.pages.every((pg) => (pg.file ?? 0) > 0 || pg.src < p.numPages)) {
           editor.reset(saved);
           setRestored(true);
         } else editor.reset(initialDoc(p.numPages));
@@ -173,6 +205,103 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
       live = false;
     };
   }, [file.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** The PDF.js document a page is drawn from: the edited file, or a merged PDF / blank page. */
+  const pdfFor = (p: EditPage): PDFDocumentProxy | null => ((p.file ?? 0) === 0 ? pdf : (extra[doc.sources?.[(p.file ?? 0) - 1] ?? ""] ?? null));
+  const fileIdFor = React.useCallback((p: EditPage) => ((p.file ?? 0) === 0 ? file.id : (doc.sources?.[(p.file ?? 0) - 1] ?? file.id)), [file.id, doc.sources]);
+
+  // load merged PDFs and blank pages as they're added (or restored from autosave)
+  React.useEffect(() => {
+    for (const id of doc.sources ?? []) {
+      if (extra[id]) continue;
+      loadPdf(api.fileUrl(id), id)
+        .then((d) => setExtra((x) => ({ ...x, [id]: d })))
+        .catch(() => toast("A PDF you added is no longer available. Remove its pages or add it again.", "danger"));
+    }
+  }, [doc.sources]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Adds pages from other PDFs right after the current page, as one undoable step. */
+  const addPagesFrom = (added: StoredFile[], countOf: (f: StoredFile) => number) => {
+    editor.update((d) => {
+      const sources = [...(d.sources ?? [])];
+      const fresh: EditPage[] = [];
+      for (const f of added) {
+        let n = sources.indexOf(f.id) + 1;
+        if (!n) {
+          sources.push(f.id);
+          n = sources.length;
+        }
+        for (let i = 0; i < countOf(f); i++) fresh.push({ key: uid("pg"), file: n, src: i, rotate: 0 });
+      }
+      const at = Math.max(0, d.pages.findIndex((p) => p.key === currentKey)) + 1;
+      return { ...d, sources, pages: [...d.pages.slice(0, at), ...fresh, ...d.pages.slice(at)] };
+    });
+  };
+
+  const insertPdf = async (list: File[]) => {
+    setAdding(true);
+    try {
+      const res = await uploadFiles(list);
+      res.errors.forEach((e) => toast(e.error, "danger"));
+      const pdfs = res.files.filter((f) => f.format === "pdf");
+      const locked = pdfs.filter((f) => f.encrypted);
+      if (locked.length) toast(`${locked[0].name} is password-protected. Unlock it first.`, "danger");
+      const ok = pdfs.filter((f) => !f.encrypted && f.pages);
+      if (res.files.length > pdfs.length) toast("Only PDFs can be inserted as pages.", "danger");
+      if (ok.length) {
+        addPagesFrom(ok, (f) => f.pages ?? 0);
+        toast(`Added ${ok.reduce((n, f) => n + (f.pages ?? 0), 0)} page(s).`, "success");
+      }
+    } catch (e) {
+      toast((e as Error).message, "danger");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const insertBlank = async () => {
+    const cur = doc.pages.find((p) => p.key === currentKey) ?? doc.pages[0];
+    const source = cur && pdfFor(cur);
+    let w = 595.28;
+    let h = 841.89;
+    if (cur && source) {
+      const pg = await source.getPage(cur.src + 1);
+      // same visual size and orientation as the page it follows
+      const vp = pg.getViewport({ scale: 1, rotation: (pg.rotate + cur.rotate) % 360 });
+      w = vp.width;
+      h = vp.height;
+    }
+    const sizeKey = `${Math.round(w)}x${Math.round(h)}`;
+    setAdding(true);
+    try {
+      let stored = blankCache.current.get(sizeKey);
+      if (!stored) {
+        const res = await uploadFiles([await blankPdf(w, h)]);
+        stored = res.files[0];
+        if (!stored) throw new Error(res.errors[0]?.error ?? "The blank page couldn't be created.");
+        blankCache.current.set(sizeKey, stored);
+      }
+      addPagesFrom([stored], () => 1);
+    } catch (e) {
+      toast((e as Error).message, "danger");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await rootRef.current?.requestFullscreen();
+    } catch {
+      toast("Full screen isn't available in this browser.", "danger");
+    }
+  };
+  React.useEffect(() => {
+    const on = () => setFullscreen(document.fullscreenElement === rootRef.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
 
   /** The document point under a screen position (or the nearest page's edge when between pages). */
   const anchorAt = (clientX: number, clientY: number): Anchor | null => {
@@ -381,11 +510,14 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
     else views.current.delete(key);
   }, []);
   const getText = React.useCallback(
-    (src: number) => {
-      if (!textCache.current.has(src) && pdf) textCache.current.set(src, pdf.getPage(src + 1).then((p) => p.getTextContent()).then(textItems));
-      return textCache.current.get(src) ?? Promise.resolve([]);
+    (page: EditPage) => {
+      const source = pdfFor(page);
+      const key = `${page.file ?? 0}:${page.src}`;
+      if (!textCache.current.has(key) && source) textCache.current.set(key, source.getPage(page.src + 1).then((p) => p.getTextContent()).then(textItems));
+      return textCache.current.get(key) ?? Promise.resolve([]);
     },
-    [pdf],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pdf, extra, doc.sources],
   );
 
   // track the page in view
@@ -477,13 +609,78 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
     setToolId("select");
   };
 
-  const exportPdf = () => {
+  /** Every export runs the real edit job on the server; nothing reports success until the file exists. */
+  const runExport = (kind: ExportKind, extraOptions: Record<string, unknown> = {}) => {
     setEditingId(null);
     const clean = cleanForExport(doc);
     const images = [...new Set(clean.objects.flatMap((o) => (o.type === "image" || o.type === "signature" ? [o.fileId] : [])))];
-    setExportOpen(true);
-    job.start(mode === "sign" ? "sign" : "edit", [file.id, ...images], { edit: clean, suffix: mode === "sign" ? "signed" : "edited" });
+    const used = new Set(clean.pages.map((p) => p.file ?? 0));
+    // only send the merged PDFs still in use
+    const sources = (clean.sources ?? []).filter((_, i) => used.has(i + 1));
+    const remap = new Map((clean.sources ?? []).map((id, i) => [i + 1, sources.indexOf(id) + 1]));
+    const edit = { ...clean, sources, pages: clean.pages.map((p) => ((p.file ?? 0) ? { ...p, file: remap.get(p.file!) } : p)) };
+    setExportKind(kind);
+    if (kind !== "save") setExportOpen(true);
+    const suffix = kind === "extract" ? "extract" : kind === "split" ? "part" : mode === "sign" ? "signed" : "edited";
+    job.start(mode === "sign" ? "sign" : "edit", [file.id, ...sources, ...images], { edit, suffix, ...extraOptions });
   };
+  const exportPdf = () => runExport("download");
+  const savePdf = () => runExport("save");
+  const extractSelected = () => {
+    const keys = doc.pages.filter((p) => selectedPages.has(p.key)).map((p) => p.key);
+    if (!keys.length) {
+      toast("Select pages first: tick the checkbox on their thumbnails.", "info");
+      return;
+    }
+    runExport("extract", { only: keys });
+  };
+  const startSplit = () => {
+    try {
+      parseRanges(splitRanges, doc.pages.length);
+    } catch (e) {
+      setSplitError((e as Error).message);
+      return;
+    }
+    setSplitOpen(false);
+    runExport("split", { split: splitRanges });
+  };
+
+  // finishing an export: Download saves the file, Save swaps the editor to the saved version
+  const handled = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (job.state.phase === "failed" && exportKind === "save") {
+      toast(`Couldn't save: ${job.state.error}`, "danger");
+      job.reset();
+    }
+    if (job.state.phase !== "done" || handled.current === job.state.job.id) return;
+    const done = job.state.job;
+    handled.current = done.id;
+    if (exportKind === "download" && done.outputs.length === 1) download(api.downloadUrl(done.id, 0));
+    if (exportKind === "save") {
+      api
+        .useOutput(done.id, 0)
+        .then(async ({ file: saved }) => {
+          clearSaved(file.id);
+          const q = new URLSearchParams(window.location.search);
+          const docId = q.get("doc");
+          if (account.user?.verified) {
+            // signed in: the save goes to the account (a new version when the editor opened a saved document)
+            try {
+              const r = docId
+                ? await call<{ document: { id: string; name: string; version: number } }>(`/api/docs/${docId}/versions`, "POST", { fileId: saved.id, note: "Edited in the PDF editor" })
+                : await call<{ document: { id: string; name: string; version: number } }>("/api/docs", "POST", { fileId: saved.id });
+              q.set("doc", r.document.id);
+              window.history.replaceState(window.history.state, "", `${window.location.pathname}?${q.toString().replace(/%2C/g, ",")}`);
+              toast(docId ? `Saved version ${r.document.version} of ${r.document.name}.` : `Saved to My Documents as ${r.document.name}.`, "success");
+            } catch (e) {
+              toast(`Couldn't save to your documents: ${(e as Error).message}`, "danger");
+            }
+          } else toast(`Saved to My Documents as ${saved.name}.`, "success");
+          onReplace(saved);
+        })
+        .catch((e) => toast((e as Error).message, "danger"));
+    }
+  }, [job.state, exportKind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openResult = async () => {
     if (job.state.phase !== "done") return;
@@ -534,7 +731,7 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
       }
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        exportPdf();
+        if (job.state.phase !== "running" && job.state.phase !== "starting") savePdf();
         return;
       }
       if (mod && e.key.toLowerCase() === "d" && selected) {
@@ -548,6 +745,14 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
       if (e.code === "Space") {
         e.preventDefault();
         setSpaceHeld(true);
+        return;
+      }
+      if (e.key === "?") {
+        setKeysOpen(true);
+        return;
+      }
+      if (e.key.toLowerCase() === "f" && !e.altKey) {
+        toggleFullscreen();
         return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
@@ -602,7 +807,7 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
     );
 
   return (
-    <div className="flex h-[calc(100dvh-48px)] min-h-0 flex-col lg:h-dvh">
+    <div ref={rootRef} className={cn("flex min-h-0 flex-col bg-canvas", fullscreen ? "h-dvh" : "h-[calc(100dvh-56px)]")} data-testid="editor-root">
       {confirmEl}
       {/* ---------------------------------------------------------------- toolbar */}
       <div className="glass z-20 flex h-12 shrink-0 items-center gap-1 border-b px-2">
@@ -654,6 +859,63 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
               <Signature className="size-4" />
             </IconButton>
           )}
+          <span className="mx-1 h-5 w-px shrink-0 bg-ink/10" aria-hidden />
+          <Menu.Root>
+            <Menu.Trigger asChild>
+              <IconButton label="Pages" disabled={adding}>
+                {adding ? <Loader2 className="size-4 animate-spin" /> : <Files className="size-4" />}
+              </IconButton>
+            </Menu.Trigger>
+            <Menu.Portal>
+              <Menu.Content align="start" sideOffset={6} className="glass z-50 w-64 animate-rise-in rounded-xl p-1.5 shadow-overlay">
+                <Menu.Item onSelect={insertBlank} className={MENU_ITEM}>
+                  <FileBlank className="size-4 opacity-70" /> Insert blank page
+                </Menu.Item>
+                <Menu.Item onSelect={() => pdfInput.current?.click()} className={MENU_ITEM}>
+                  <FilePlus2 className="size-4 opacity-70" /> Insert pages from a PDF…
+                </Menu.Item>
+                <Menu.Separator className="my-1 h-px bg-ink/10" />
+                <Menu.Item onSelect={extractSelected} className={MENU_ITEM}>
+                  <FileOutput className="size-4 opacity-70" /> Extract selected pages{selectedPages.size ? ` (${selectedPages.size})` : ""}
+                </Menu.Item>
+                <Menu.Item onSelect={() => { setSplitError(null); setSplitOpen(true); }} className={MENU_ITEM}>
+                  <Scissors className="size-4 opacity-70" /> Split document…
+                </Menu.Item>
+                <p className="px-2 pb-1 pt-1.5 text-2xs leading-4 text-ink-3">Rotate, duplicate, delete and drag pages from the thumbnail rail.</p>
+              </Menu.Content>
+            </Menu.Portal>
+          </Menu.Root>
+          <Menu.Root>
+            <Menu.Trigger asChild>
+              <IconButton label="Watermark and numbering" active={!!doc.watermark || !!doc.pageNumbers}>
+                <Stamp className="size-4" />
+              </IconButton>
+            </Menu.Trigger>
+            <Menu.Portal>
+              <Menu.Content align="start" sideOffset={6} className="glass z-50 w-56 animate-rise-in rounded-xl p-1.5 shadow-overlay">
+                <Menu.Item onSelect={() => setWmOpen(true)} className={MENU_ITEM}>
+                  <Stamp className="size-4 opacity-70" /> {doc.watermark ? "Edit watermark…" : "Add watermark…"}
+                </Menu.Item>
+                <Menu.Item onSelect={() => setPnOpen(true)} className={MENU_ITEM}>
+                  <Hash className="size-4 opacity-70" /> {doc.pageNumbers ? "Edit page numbers…" : "Add page numbers…"}
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Portal>
+          </Menu.Root>
+          <input
+            ref={pdfInput}
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            className="sr-only"
+            tabIndex={-1}
+            data-testid="insert-pdf-input"
+            onChange={(e) => {
+              const l = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (l.length) insertPdf(l);
+            }}
+          />
           <IconButton label="Insert image (I)" onClick={() => imageInput.current?.click()} disabled={inserting}>
             {inserting ? <Loader2 className="size-4 animate-spin" /> : <ImageIcon className="size-4" />}
           </IconButton>
@@ -670,6 +932,9 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
             }}
           />
         </div>
+        <IconButton label={fullscreen ? "Exit full screen (F)" : "Full screen (F)"} active={fullscreen} onClick={toggleFullscreen} className="hidden sm:inline-flex">
+          {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+        </IconButton>
         <IconButton label={showInspector ? "Hide inspector" : "Show inspector"} active={showInspector} onClick={() => setShowInspector((s) => !s)} className="hidden lg:inline-flex">
           <PanelRight className="size-4" />
         </IconButton>
@@ -693,6 +958,9 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
               >
                 Discard all edits…
               </Menu.Item>
+              <Menu.Item onSelect={() => setKeysOpen(true)} className={MENU_ITEM}>
+                <Keyboard className="size-4 opacity-70" /> Keyboard shortcuts <span className="ml-auto text-xs opacity-60">?</span>
+              </Menu.Item>
               <Menu.Separator className="my-1 h-px bg-ink/10" />
               <div className="space-y-1 px-2 py-1.5 text-xs text-ink-3">
                 <p className="flex justify-between">Undo / redo <span><Kbd>⌘Z</Kbd> <Kbd>⇧⌘Z</Kbd></span></p>
@@ -701,14 +969,16 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
                 <p className="flex justify-between">Pan <Kbd>Space drag</Kbd></p>
                 <p className="flex justify-between">Pages <span><Kbd>PgUp</Kbd> <Kbd>PgDn</Kbd></span></p>
                 <p className="flex justify-between">Duplicate <Kbd>⌘D</Kbd></p>
-                <p className="flex justify-between">Export <Kbd>⌘S</Kbd></p>
+                <p className="flex justify-between">Save <Kbd>⌘S</Kbd></p>
               </div>
             </Menu.Content>
           </Menu.Portal>
         </Menu.Root>
-        <Button variant="primary" size="sm" className="ml-1" icon={<Download className="size-3.5" />} onClick={exportPdf} disabled={!pdf}>
-          <span className="hidden sm:inline">{mode === "sign" ? "Export signed PDF" : "Export PDF"}</span>
-          <span className="sm:hidden">Export</span>
+        <Button size="sm" className="ml-1" icon={job.state.phase !== "idle" && exportKind === "save" && job.state.phase !== "done" && job.state.phase !== "failed" ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} onClick={savePdf} disabled={!pdf || job.state.phase === "running" || job.state.phase === "starting"} aria-label="Save (⌘S)" title="Save a new version to My Documents (⌘S)">
+          <span className="hidden md:inline">Save</span>
+        </Button>
+        <Button variant="primary" size="sm" className="ml-1" icon={<Download className="size-3.5" />} onClick={exportPdf} disabled={!pdf || job.state.phase === "running" || job.state.phase === "starting"} aria-label={mode === "sign" ? "Download signed PDF" : "Download PDF"}>
+          <span className="hidden sm:inline">{mode === "sign" ? "Download signed PDF" : "Download"}</span>
         </Button>
       </div>
 
@@ -736,7 +1006,26 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
         {/* ---------------------------------------------------------------- page rail */}
         {showRail && pdf && (
           <aside aria-label="Page thumbnails" className="sidebar-surface scroll-thin hidden w-[136px] shrink-0 overflow-y-auto border-r md:block">
-            <Thumbnails doc={doc} editor={editor} fileId={file.id} current={currentKey} onGo={goTo} onDeletePage={deletePage} />
+            <Thumbnails
+              doc={doc}
+              editor={editor}
+              fileIdFor={fileIdFor}
+              current={currentKey}
+              selected={selectedPages}
+              onSelect={(key, on) => setSelectedPages((sel) => { const n = new Set(sel); if (on) n.add(key); else n.delete(key); return n; })}
+              onGo={goTo}
+              onDeletePage={deletePage}
+            />
+            {selectedPages.size > 0 && (
+              <div className="sticky bottom-0 space-y-1 border-t bg-[rgb(var(--sidebar-bg))] p-2">
+                <Button size="sm" variant="primary" className="w-full" onClick={extractSelected}>
+                  Extract {selectedPages.size}
+                </Button>
+                <Button size="sm" variant="ghost" className="w-full" onClick={() => setSelectedPages(new Set())}>
+                  Clear
+                </Button>
+              </div>
+            )}
           </aside>
         )}
 
@@ -761,8 +1050,11 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
             <div ref={content} className="flex min-w-max flex-col items-center gap-6 px-8 py-6">
               {doc.pages.map((p, i) => (
                 <div key={p.key} className="flex flex-col items-center gap-1.5">
+                  {!pdfFor(p) ? (
+                    <div className="h-[600px] w-[440px] animate-pulse rounded-[3px] bg-surface-2" aria-label="Loading page" />
+                  ) : (
                   <PageView
-                    pdf={pdf}
+                    pdf={pdfFor(p)!}
                     page={p}
                     index={i}
                     scale={scale}
@@ -777,7 +1069,9 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
                     onToolDone={() => setToolId("select")}
                     getText={getText}
                     registerView={registerView}
+                    stamps={doc.watermark || doc.pageNumbers ? { watermark: doc.watermark, pageNumbers: doc.pageNumbers, total: doc.pages.length } : undefined}
                   />
+                  )}
                   <span className="text-2xs tabular-nums text-ink-3">
                     {i + 1} / {doc.pages.length}
                   </span>
@@ -836,7 +1130,7 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
 
       <SignatureDialog open={sigOpen} onOpenChange={setSigOpen} onDone={(f) => insertImage(f, "signature")} />
 
-      <Sheet open={exportOpen} onOpenChange={(o) => { if (!o && job.state.phase !== "running") { setExportOpen(false); job.reset(); } }} title={mode === "sign" ? "Export signed PDF" : "Export PDF"} className="w-[min(560px,calc(100vw-32px))]">
+      <Sheet open={exportOpen} onOpenChange={(o) => { if (!o && job.state.phase !== "running") { setExportOpen(false); job.reset(); } }} title={exportKind === "extract" ? "Extract pages" : exportKind === "split" ? "Split document" : mode === "sign" ? "Download signed PDF" : "Download PDF"} className="w-[min(560px,calc(100vw-32px))]">
         {(job.state.phase === "running" || job.state.phase === "starting") && <Processing state={job.state} onCancel={job.cancel} />}
         {job.state.phase === "done" && (
           <div className="space-y-3">
@@ -846,7 +1140,29 @@ function Workspace({ file, mode, onClose }: { file: StoredFile; mode: "edit" | "
             </Button>
           </div>
         )}
-        {job.state.phase === "failed" && <Failure error={job.state.error} onRetry={exportPdf} onEdit={() => { setExportOpen(false); job.reset(); }} />}
+        {job.state.phase === "failed" && <Failure error={job.state.error} onRetry={() => runExport(exportKind)} onEdit={() => { setExportOpen(false); job.reset(); }} />}
+      </Sheet>
+
+      <WatermarkDialog open={wmOpen} onOpenChange={setWmOpen} value={doc.watermark} onApply={(watermark) => editor.update((d) => ({ ...d, watermark }))} />
+      <PageNumbersDialog open={pnOpen} onOpenChange={setPnOpen} value={doc.pageNumbers} onApply={(pageNumbers) => editor.update((d) => ({ ...d, pageNumbers }))} />
+      <ShortcutsDialog open={keysOpen} onOpenChange={setKeysOpen} />
+      <Sheet
+        open={splitOpen}
+        onOpenChange={setSplitOpen}
+        title="Split document"
+        description={`Each range becomes its own PDF, with all your edits. The document has ${doc.pages.length} page${doc.pages.length === 1 ? "" : "s"}.`}
+        footer={
+          <>
+            <Button onClick={() => setSplitOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={startSplit} disabled={!splitRanges.trim()}>
+              Split
+            </Button>
+          </>
+        }
+      >
+        <Field label="Page ranges" htmlFor="split-ranges" hint="Example: 1-3, 4-6, 7" error={splitError}>
+          <Input id="split-ranges" value={splitRanges} onChange={(e) => { setSplitRanges(e.target.value); setSplitError(null); }} onKeyDown={(e) => e.key === "Enter" && startSplit()} placeholder="1-3, 4-6" autoFocus />
+        </Field>
       </Sheet>
     </div>
   );

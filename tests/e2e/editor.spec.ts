@@ -13,10 +13,10 @@ async function openEditor(page: Page, file = "text-3pages.pdf") {
   return first;
 }
 
-async function exportAndDownload(page: Page, label = /Export/): Promise<Uint8Array> {
-  await page.getByRole("button", { name: label }).first().click();
-  await expect(page.getByText(/Your file is ready/)).toBeVisible({ timeout: 120_000 });
-  const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /^Download PDF$/ }).click()]);
+/** The toolbar's Download runs the export and saves the file only once it has been generated. */
+async function exportAndDownload(page: Page, label: string | RegExp = "Download PDF"): Promise<Uint8Array> {
+  const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), page.getByRole("button", { name: label, exact: typeof label === "string" }).first().click()]);
+  await expect(page.getByText(/Your file is ready/)).toBeVisible();
   return new Uint8Array(fs.readFileSync((await dl.path())!));
 }
 
@@ -117,7 +117,7 @@ test("sign: draw a signature, place it, export a PDF containing the image", asyn
   await expect(page.locator("[data-obj]")).toHaveCount(1);
   await page.getByRole("button", { name: "Date" }).click();
   await expect(page.locator("[data-obj]")).toHaveCount(2);
-  const bytes = await exportAndDownload(page, /Export signed PDF/);
+  const bytes = await exportAndDownload(page, "Download signed PDF");
   let images = 0;
   pdf(bytes).loadPage(0).getObject().get("Resources").get("XObject").forEach(() => images++);
   expect(images).toBe(1);

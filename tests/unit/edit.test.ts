@@ -141,3 +141,61 @@ describe("PDF editor export", () => {
     ).rejects.toThrow(/no longer available/);
   });
 });
+
+describe("PDF editor export: page management and stamps", () => {
+  it("merges pages from another PDF and inserts a blank page, in the chosen order", async () => {
+    const { PDFDocument } = await import("pdf-lib");
+    const blankDoc = await PDFDocument.create();
+    blankDoc.addPage([842, 595]);
+    const blank = await blankDoc.save();
+    const other = fixture("text-5pages.pdf");
+    const r = await applyEdits(
+      src,
+      {
+        version: 1,
+        sources: ["other", "blank"],
+        pages: [
+          { key: "a", src: 0, rotate: 0 },
+          { key: "x", file: 1, src: 4, rotate: 0 },
+          { key: "b", file: 2, src: 0, rotate: 0 },
+          { key: "c", src: 2, rotate: 0 },
+        ],
+        objects: [{ id: "t", pageKey: "b", type: "text", x: 60, y: 400, w: 200, h: 30, text: "ON BLANK", size: 14, color: "#000000", font: "sans", bold: false, align: "left" }],
+      },
+      { images: new Map(), pdfs: new Map([["other", other], ["blank", blank]]) },
+    );
+    const lines = firstLines(r.bytes);
+    expect(lines).toEqual(["MEMO 1", "PAGE 5", "ON BLANK", "MEMO 3"]);
+    const [, , w, h] = reopen(r.bytes).loadPage(2).getBounds();
+    expect([Math.round(w), Math.round(h)]).toEqual([842, 595]);
+  });
+
+  it("refuses pages from a PDF that wasn't provided", async () => {
+    await expect(applyEdits(src, { version: 1, sources: ["gone"], pages: [{ key: "a", file: 1, src: 0, rotate: 0 }], objects: [] }, noAssets)).rejects.toThrow(/no longer available/);
+    await expect(applyEdits(src, { version: 1, pages: [{ key: "a", file: 3, src: 0, rotate: 0 }], objects: [] }, noAssets)).rejects.toThrow(/isn't available/);
+  });
+
+  it("extracts only selected pages, keeping their edits", async () => {
+    const r = await applyEdits(
+      src,
+      doc([{ id: "t", pageKey: "c", type: "text", x: 60, y: 400, w: 200, h: 30, text: "KEEP ME", size: 14, color: "#000000", font: "sans", bold: false, align: "left" }]),
+      noAssets,
+      { only: ["c", "a"] },
+    );
+    expect(firstLines(r.bytes)).toEqual(["MEMO 1", "MEMO 3"]);
+    expect(pageTexts(r.bytes)[1]).toContain("KEEP ME");
+    await expect(applyEdits(src, doc([]), noAssets, { only: ["nope"] })).rejects.toThrow(/at least one page/);
+  });
+
+  it("stamps a watermark and page numbers on every page", async () => {
+    const r = await applyEdits(
+      src,
+      { ...doc([]), watermark: { text: "DRAFT", size: 60, color: "#ff0000", opacity: 0.2, angle: 45, position: "center" }, pageNumbers: { position: "bottom-right", format: "Page {n} of {total}", start: 1, size: 10 } },
+      noAssets,
+    );
+    const t = pageTexts(r.bytes);
+    expect(t.every((p) => p.includes("DRAFT"))).toBe(true);
+    expect(t[2]).toContain("Page 3 of 3");
+    expect(r.stats).toMatchObject({ watermark: 1, pageNumbers: 1 });
+  });
+});

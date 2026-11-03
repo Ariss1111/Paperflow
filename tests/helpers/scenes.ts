@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
 import * as mupdf from "mupdf";
 
 const require = createRequire(import.meta.url);
@@ -28,16 +29,33 @@ export const PAGE_TEXT = [
   "Our office is open during the working days of every week.",
 ];
 
+/** The same letter in Romanian, with every diacritic the language uses. */
+export const PAGE_TEXT_RO = [
+  "Vă mulțumim că ați ales firma noastră pentru acest audit.",
+  "Plata trebuie efectuată până la sfârșitul lunii curente.",
+  "Păstrați o copie a acestei pagini împreună cu actele.",
+  "Biroul nostru este deschis în zilele lucrătoare ale săptămânii.",
+  "Știm că fiecare pagină contează pentru țara și orașul nostru.",
+];
+
 /** An A4 text page, rendered like paper (white, dark text, a heading). `upright` controls text orientation. */
-export async function renderLetter(longSide = 1500, rotate = 0): Promise<{ data: Uint8ClampedArray; width: number; height: number }> {
+export async function renderLetter(longSide = 1500, rotate = 0, romanian = false): Promise<{ data: Uint8ClampedArray; width: number; height: number }> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([595.28, 841.89]);
-  const font = await doc.embedFont(StandardFonts.TimesRoman);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  page.drawText("INVOICE 2047", { x: 60, y: 770, size: 30, font: bold, color: rgb(0.08, 0.08, 0.1) });
+  let font, bold;
+  if (romanian) {
+    // the standard PDF fonts have no ș/ț: use DejaVu
+    doc.registerFontkit(fontkit);
+    font = await doc.embedFont(fs.readFileSync(path.resolve("node_modules/dejavu-fonts-ttf/ttf/DejaVuSerif.ttf")));
+    bold = await doc.embedFont(fs.readFileSync(path.resolve("node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf")));
+  } else {
+    font = await doc.embedFont(StandardFonts.TimesRoman);
+    bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  }
+  page.drawText(romanian ? "FACTURĂ 2047" : "INVOICE 2047", { x: 60, y: 770, size: 30, font: bold, color: rgb(0.08, 0.08, 0.1) });
   let y = 720;
   for (let block = 0; block < 5; block++) {
-    for (const line of PAGE_TEXT) {
+    for (const line of romanian ? PAGE_TEXT_RO : PAGE_TEXT) {
       page.drawText(line, { x: 60, y, size: 13, font, color: rgb(0.1, 0.1, 0.12) });
       y -= 20;
     }
@@ -109,6 +127,8 @@ export interface SceneOptions {
   thumb?: boolean;
   pageRotate?: number;
   seed?: number;
+  /** a Romanian letter instead of the English one */
+  romanian?: boolean;
 }
 
 export interface Scene {
@@ -130,7 +150,7 @@ export async function makeScene(cv: Cv, o: SceneOptions): Promise<Scene> {
   const scene = new cv.Mat(H, W, cv.CV_8UC4);
   scene.data.set(buf);
 
-  const paper = await renderLetter(1500, o.pageRotate ?? 0);
+  const paper = await renderLetter(1500, o.pageRotate ?? 0, o.romanian);
   const pm = new cv.Mat(paper.height, paper.width, cv.CV_8UC4);
   pm.data.set(paper.data);
   const from = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, paper.width, 0, paper.width, paper.height, 0, paper.height]);

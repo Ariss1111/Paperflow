@@ -14,9 +14,11 @@ interface LangSource {
   gzip: boolean;
 }
 
-function bundledEng(): string | null {
-  const dir = path.join(env.projectRoot, "node_modules", "@tesseract.js-data", "eng", "4.0.0_best_int");
-  return fs.existsSync(path.join(dir, "eng.traineddata.gz")) ? dir : null;
+/** Language data shipped as npm packages (English and Romanian). */
+function bundled(code: string): string | null {
+  if (code !== "eng" && code !== "ron") return null;
+  const dir = path.join(env.projectRoot, "node_modules", "@tesseract.js-data", code, "4.0.0_best_int");
+  return fs.existsSync(path.join(dir, `${code}.traineddata.gz`)) ? dir : null;
 }
 
 function langSource(code: string): LangSource | null {
@@ -26,16 +28,14 @@ function langSource(code: string): LangSource | null {
     if (fs.existsSync(path.join(dir, `${code}.traineddata.gz`))) return { dir, gzip: true };
     if (fs.existsSync(path.join(dir, `${code}.traineddata`))) return { dir, gzip: false };
   }
-  if (code === "eng") {
-    const dir = bundledEng();
-    if (dir) return { dir, gzip: true };
-  }
+  const dir = bundled(code);
+  if (dir) return { dir, gzip: true };
   return null;
 }
 
 /** Languages that are configured *and* have data files present. */
 export function ocrLanguages(): string[] {
-  const set = new Set(["eng", ...env.ocrLanguages]);
+  const set = new Set(["eng", "ron", ...env.ocrLanguages]);
   return [...set].filter((l) => langSource(l));
 }
 

@@ -1,11 +1,13 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { FolderOpen, History, Trash2, Download, RotateCcw, X, FileArchive, Clock } from "lucide-react";
+import { FolderOpen, History, Trash2, Download, RotateCcw, X, FileArchive, Clock, Cloud } from "lucide-react";
+import { LibraryPage } from "@/components/library/LibraryPage";
+import { call, useAccount } from "@/lib/client/account";
 import { Container, PageHeader } from "@/components/shell/AppShell";
 import { Segmented } from "@/components/ui/controls";
 import { Button, IconButton } from "@/components/ui/button";
-import { Badge, EmptyState, toast, Progress } from "@/components/ui/feedback";
+import { Badge, EmptyState, Notice, toast, Progress } from "@/components/ui/feedback";
 import { useConfirm } from "@/components/ui/dialog";
 import { FileThumb } from "./Thumb";
 import { DropZone } from "./DropZone";
@@ -15,7 +17,7 @@ import { ToolGlyph } from "@/components/ToolIcon";
 import { api, download } from "@/lib/client/api";
 import { TOOLS, toolHref } from "@/lib/tools/catalog";
 import { FORMATS, UPLOADABLE } from "@/lib/formats";
-import { formatBytes, formatRelative } from "@/lib/utils";
+import { formatBytes, formatRelative, withQuery } from "@/lib/utils";
 import type { Job, StoredFile } from "@/types";
 
 function expiresIn(ts: number) {
@@ -23,7 +25,50 @@ function expiresIn(ts: number) {
   return m < 1 ? "expires soon" : `deleted in ${m} min`;
 }
 
+/** Signed in (and confirmed): the cloud library. Otherwise: this browser session's files. */
 export function FilesPage() {
+  const { loaded, user } = useAccount();
+  if (!loaded) return <Container><p className="py-20 text-center text-sm text-ink-3">Loading…</p></Container>;
+  if (user?.verified) return <LibraryPage user={user} />;
+  return <SessionFiles />;
+}
+
+function AccountBanner() {
+  const { user } = useAccount();
+  const [sent, setSent] = React.useState(false);
+  if (user && !user.verified)
+    return (
+      <Notice tone="warning" title="Confirm your email to start saving documents" className="mb-6">
+        We sent a link to <b>{user.email}</b>.{" "}
+        {sent ? (
+          "A new link is on its way."
+        ) : (
+          <button type="button" className="font-medium text-accent hover:underline" onClick={() => call("/api/auth/verify", "POST", { resend: true }).then(() => setSent(true), (e) => toast((e as Error).message, "danger"))}>
+            Send it again
+          </button>
+        )}
+      </Notice>
+    );
+  return (
+    <section className="mb-6 flex flex-wrap items-center gap-4 rounded-[18px] bg-gradient-to-r from-accent/[0.08] to-[#5b4cf0]/[0.08] p-5" aria-label="Keep your documents">
+      <Cloud className="size-8 shrink-0 text-accent" />
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-ink">Keep your documents</p>
+        <p className="text-sm text-ink-2">Create a free account to save documents online, organise them in folders, share them with links and open them on any device.</p>
+      </div>
+      <div className="flex gap-2">
+        <Link href="/signin?next=/files" className="inline-flex h-9 items-center rounded-full px-4 text-sm font-medium text-ink hover:bg-ink/[0.05]">
+          Sign in
+        </Link>
+        <Link href="/signup" className="inline-flex h-9 items-center rounded-full bg-accent px-4 text-sm font-medium text-white hover:bg-accent/90">
+          Create account
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function SessionFiles() {
   const [tab, setTab] = React.useState<"files" | "history">("files");
   const [files, setFiles] = React.useState<StoredFile[] | null>(null);
   const [jobs, setJobs] = React.useState<Job[] | null>(null);
@@ -60,8 +105,11 @@ export function FilesPage() {
   return (
     <Container>
       {element}
+      <div className="pt-8">
+        <AccountBanner />
+      </div>
       <PageHeader
-        title="My Files"
+        title="My Documents"
         subtitle="Everything in this browser session. Files are deleted automatically — nothing here is kept long-term."
         actions={
           tab === "files" && files?.length ? (
@@ -128,7 +176,7 @@ export function FilesPage() {
                       </p>
                       <div className="mt-2 flex flex-wrap gap-1">
                         {tools.map((t) => (
-                          <Link key={t.id} href={`${toolHref(t)}?files=${f.id}`} className="inline-flex h-6 items-center rounded-md bg-ink/[0.05] px-2 text-xs font-medium text-ink-2 hover:bg-ink/[0.08] hover:text-ink">
+                          <Link key={t.id} href={withQuery(toolHref(t), `files=${f.id}`)} className="inline-flex h-6 items-center rounded-md bg-ink/[0.05] px-2 text-xs font-medium text-ink-2 hover:bg-ink/[0.08] hover:text-ink">
                             {t.name}
                           </Link>
                         ))}

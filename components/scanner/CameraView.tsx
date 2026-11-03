@@ -84,7 +84,7 @@ export function CameraView({
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
         setError({
           title: window.isSecureContext ? "This browser can't use the camera" : "The camera needs a secure connection",
-          body: window.isSecureContext ? "Try a current version of Chrome, Edge, Safari or Firefox, or upload a photo instead." : "Browsers only allow camera access on https:// sites and localhost. Open Paperflow through its https address, or upload a photo instead.",
+          body: window.isSecureContext ? "Try a current version of Chrome, Edge, Safari or Firefox, or upload a photo instead." : "Browsers only allow camera access on https:// sites and localhost. Open Pagelyt through its https address, or upload a photo instead.",
         });
         setStarting(false);
         return;

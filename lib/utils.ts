@@ -37,3 +37,10 @@ export function extOf(name: string): string {
   const i = name.lastIndexOf(".");
   return i > 0 ? name.slice(i + 1).toLowerCase() : "";
 }
+
+/** Adds query parameters to a link that may already have some ("?a=1" + "files=x" → "?a=1&files=x"). */
+export function withQuery(href: string, query: string): string {
+  const q = query.replace(/^[?&]/, "");
+  if (!q) return href;
+  return href + (href.includes("?") ? "&" : "?") + q;
+}

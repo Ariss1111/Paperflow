@@ -3,120 +3,139 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as D from "@radix-ui/react-dialog";
-import { Home, LayoutGrid, PenLine, ArrowLeftRight, FolderOpen, Settings, Shield, Search, Menu, X, CornerDownLeft } from "lucide-react";
+import { Home, LayoutGrid, PenLine, ScanLine, Sparkles, FolderOpen, Tag, Settings, Shield, Search, Menu, X, CornerDownLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { APP_NAME } from "@/lib/brand";
 import { TOOLS, toolHref, CATEGORIES } from "@/lib/tools/catalog";
 import { ToolGlyph } from "@/components/ToolIcon";
+import { Logo } from "@/components/brand/Logo";
 import { Kbd } from "@/components/ui/controls";
 import { Toaster } from "@/components/ui/feedback";
 import { getSettings, applyTheme } from "@/lib/client/settings";
+import { AccountButton } from "@/components/account/AccountButton";
+
+export { Logo };
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/tools", label: "All Tools", icon: LayoutGrid },
   { href: "/editor", label: "PDF Editor", icon: PenLine },
-  { href: "/convert", label: "Convert", icon: ArrowLeftRight },
-  { href: "/files", label: "My Files", icon: FolderOpen },
+  { href: "/scan", label: "Smart Scanner", icon: ScanLine },
+  { href: "/ai", label: "AI Workspace", icon: Sparkles },
+  { href: "/files", label: "My Documents", icon: FolderOpen },
+  { href: "/pricing", label: "Pricing", icon: Tag },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
-const QUICK = ["scan", "merge", "split", "compress", "organize", "sign", "protect"];
-
-export function Logo({ className }: { className?: string }) {
-  return (
-    <span className={cn("inline-flex size-7 items-center justify-center rounded-[8px] bg-gradient-to-b from-[#3b8cff] to-[#0062d6] shadow-[inset_0_0.5px_0_rgb(255_255_255/0.4),0_1px_2px_rgb(0_0_0/0.2)]", className)}>
-      <svg viewBox="0 0 24 24" className="size-[15px]" fill="none" aria-hidden>
-        <path d="M7 3.5h7l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5Z" fill="white" fillOpacity="0.95" />
-        <path d="M8.5 12.5c2-1.6 4-1.6 7 0M8.5 16c2-1.6 4-1.6 7 0" stroke="#0062d6" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    </span>
-  );
-}
 
 function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function SidebarContent({ onNavigate, onSearch }: { onNavigate?: () => void; onSearch: () => void }) {
+/** Slim translucent bar: logo, the eight sections, search. Collapses into a drawer below 1280 px. */
+function TopNav({ onSearch, onMenu }: { onSearch: () => void; onMenu: () => void }) {
   const pathname = usePathname();
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-14 items-center gap-2.5 px-4">
-        <Logo />
-        <span className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{APP_NAME}</span>
-      </div>
-      <div className="px-3 pb-2">
+    <header className="glass fixed inset-x-0 top-0 z-40 border-b">
+      <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-2 px-3 sm:px-5">
+        <button type="button" aria-label="Open navigation" onClick={onMenu} className="inline-flex size-9 items-center justify-center rounded-lg text-ink-2 hover:bg-ink/[0.06] xl:hidden">
+          <Menu className="size-5" />
+        </button>
+        <Link href="/" aria-label="Pagelyt home" className="mr-2 rounded-lg">
+          <Logo />
+        </Link>
+        <nav aria-label="Main" className="hidden flex-1 items-center justify-center xl:flex">
+          <ul className="flex items-center gap-0.5">
+            {NAV.map(({ href, label }) => {
+              const active = isActive(pathname, href);
+              return (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "relative inline-flex h-9 items-center rounded-full px-3.5 text-[13.5px] font-medium transition-colors duration-150",
+                      active ? "bg-accent/[0.1] text-accent" : "text-ink-2 hover:bg-ink/[0.05] hover:text-ink",
+                    )}
+                  >
+                    {label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
         <button
           type="button"
           onClick={onSearch}
-          className="flex h-8 w-full items-center gap-2 rounded-lg bg-ink/[0.05] px-2.5 text-sm text-ink-3 transition-colors hover:bg-ink/[0.08]"
+          aria-label="Search tools"
+          className="ml-auto inline-flex h-9 items-center gap-2 rounded-full bg-ink/[0.05] px-3 text-sm text-ink-3 transition-colors hover:bg-ink/[0.08] xl:ml-0"
         >
-          <Search className="size-3.5" aria-hidden />
-          <span className="flex-1 text-left">Search tools</span>
-          <Kbd>⌘K</Kbd>
+          <Search className="size-4" aria-hidden />
+          <span className="hidden sm:inline">Search tools</span>
+          <span className="hidden sm:inline">
+            <Kbd>⌘K</Kbd>
+          </span>
         </button>
+        <AccountButton />
       </div>
-      <nav aria-label="Main" className="scroll-thin flex-1 overflow-y-auto px-3 py-1">
-        <ul className="space-y-px">
-          {NAV.map(({ href, label, icon: I }) => {
-            const active = isActive(pathname, href);
-            return (
-              <li key={href}>
-                <Link
-                  href={href}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex h-8 items-center gap-2.5 rounded-[7px] px-2.5 text-sm transition-colors duration-100",
-                    active ? "bg-ink/[0.08] font-medium text-ink" : "text-ink-2 hover:bg-ink/[0.04] hover:text-ink",
-                  )}
-                >
-                  <I className={cn("size-4", active ? "text-accent" : "text-ink-3")} strokeWidth={1.75} aria-hidden />
-                  {label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-        <p className="eyebrow mb-1.5 mt-6 px-2.5">Quick tools</p>
-        <ul className="space-y-px">
-          {QUICK.map((id) => {
-            const t = TOOLS.find((x) => x.id === id)!;
-            const href = toolHref(t);
-            const active = pathname === href;
-            return (
-              <li key={id}>
-                <Link
-                  href={href}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex h-8 items-center gap-2.5 rounded-[7px] px-2 text-sm transition-colors duration-100",
-                    active ? "bg-ink/[0.08] font-medium text-ink" : "text-ink-2 hover:bg-ink/[0.04] hover:text-ink",
-                  )}
-                >
-                  <ToolGlyph icon={t.icon} category={t.category} size="sm" className="!size-5 !rounded-[6px] [&_svg]:!size-3" />
-                  {t.name}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-      <div className="border-t px-3 py-3">
-        <Link
-          href="/privacy"
-          onClick={onNavigate}
-          className={cn(
-            "flex h-8 items-center gap-2.5 rounded-[7px] px-2.5 text-sm text-ink-2 transition-colors hover:bg-ink/[0.04] hover:text-ink",
-            isActive(pathname, "/privacy") && "bg-ink/[0.08] text-ink",
-          )}
-        >
-          <Shield className="size-4 text-ink-3" strokeWidth={1.75} aria-hidden />
-          Privacy & Security
-        </Link>
-      </div>
-    </div>
+    </header>
+  );
+}
+
+function Drawer({ open, onOpenChange, onSearch }: { open: boolean; onOpenChange: (o: boolean) => void; onSearch: () => void }) {
+  const pathname = usePathname();
+  return (
+    <D.Root open={open} onOpenChange={onOpenChange}>
+      <D.Portal>
+        <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-black/30" />
+        <D.Content className="fixed inset-y-0 left-0 z-50 flex w-[300px] max-w-[86vw] animate-drawer-in flex-col bg-surface shadow-overlay focus:outline-none">
+          <D.Title className="sr-only">Navigation</D.Title>
+          <D.Description className="sr-only">Main navigation</D.Description>
+          <div className="flex h-14 items-center justify-between px-4">
+            <Logo />
+            <button type="button" aria-label="Close navigation" onClick={() => onOpenChange(false)} className="inline-flex size-9 items-center justify-center rounded-lg text-ink-3 hover:bg-ink/[0.06]">
+              <X className="size-4" />
+            </button>
+          </div>
+          <div className="px-3 pb-2">
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                onSearch();
+              }}
+              className="flex h-10 w-full items-center gap-2 rounded-xl bg-ink/[0.05] px-3 text-sm text-ink-3"
+            >
+              <Search className="size-4" aria-hidden /> Search tools
+            </button>
+          </div>
+          <nav aria-label="Main" className="scroll-thin flex-1 overflow-y-auto px-3 py-1">
+            <ul className="space-y-0.5">
+              {NAV.map(({ href, label, icon: I }) => {
+                const active = isActive(pathname, href);
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      onClick={() => onOpenChange(false)}
+                      aria-current={active ? "page" : undefined}
+                      className={cn("flex h-11 items-center gap-3 rounded-xl px-3 text-[15px]", active ? "bg-accent/[0.1] font-medium text-accent" : "text-ink hover:bg-ink/[0.04]")}
+                    >
+                      <I className={cn("size-[18px]", active ? "text-accent" : "text-ink-3")} strokeWidth={1.75} aria-hidden />
+                      {label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+          <div className="border-t px-3 py-3">
+            <Link href="/privacy" onClick={() => onOpenChange(false)} className="flex h-10 items-center gap-3 rounded-xl px-3 text-sm text-ink-2 hover:bg-ink/[0.04]">
+              <Shield className="size-4 text-ink-3" strokeWidth={1.75} aria-hidden /> Privacy & Security
+            </Link>
+          </div>
+        </D.Content>
+      </D.Portal>
+    </D.Root>
   );
 }
 
@@ -229,48 +248,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   React.useEffect(() => setDrawer(false), [pathname]);
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="min-h-dvh">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:shadow-raised">
         Skip to content
       </a>
-      <aside className="sidebar-surface sticky top-0 hidden h-dvh w-[232px] shrink-0 border-r lg:block">
-        <SidebarContent onSearch={() => setPalette(true)} />
-      </aside>
-
-      {/* Mobile / tablet top bar */}
-      <div className="glass fixed inset-x-0 top-0 z-40 flex h-12 items-center gap-2 border-b px-2 lg:hidden">
-        <button type="button" aria-label="Open navigation" onClick={() => setDrawer(true)} className="inline-flex size-9 items-center justify-center rounded-lg text-ink-2 hover:bg-ink/[0.06]">
-          <Menu className="size-5" />
-        </button>
-        <Link href="/" className="flex items-center gap-2">
-          <Logo className="size-6" />
-          <span className="text-[15px] font-semibold text-ink">{APP_NAME}</span>
-        </Link>
-        <button type="button" aria-label="Search tools" onClick={() => setPalette(true)} className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-ink-2 hover:bg-ink/[0.06]">
-          <Search className="size-[18px]" />
-        </button>
-      </div>
-      <D.Root open={drawer} onOpenChange={setDrawer}>
-        <D.Portal>
-          <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-black/30 lg:hidden" />
-          <D.Content className="fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] animate-drawer-in bg-[rgb(var(--sidebar-bg))] shadow-overlay focus:outline-none lg:hidden">
-            <D.Title className="sr-only">Navigation</D.Title>
-            <D.Description className="sr-only">Main navigation</D.Description>
-            <button type="button" aria-label="Close navigation" onClick={() => setDrawer(false)} className="absolute right-2 top-3 inline-flex size-8 items-center justify-center rounded-lg text-ink-3 hover:bg-ink/[0.06]">
-              <X className="size-4" />
-            </button>
-            <SidebarContent
-              onNavigate={() => setDrawer(false)}
-              onSearch={() => {
-                setDrawer(false);
-                setPalette(true);
-              }}
-            />
-          </D.Content>
-        </D.Portal>
-      </D.Root>
-
-      <main id="main" className={cn("min-w-0 flex-1 pt-12 lg:pt-0", fullBleed && "flex flex-col")}>
+      <TopNav onSearch={() => setPalette(true)} onMenu={() => setDrawer(true)} />
+      <Drawer open={drawer} onOpenChange={setDrawer} onSearch={() => setPalette(true)} />
+      <main id="main" className={cn("min-w-0 pt-14", fullBleed && "flex flex-col")}>
         {children}
       </main>
       <CommandPalette open={palette} onOpenChange={setPalette} />

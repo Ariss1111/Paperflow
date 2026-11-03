@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { execFileSync } from "node:child_process";
-import { loadCv, makeScene, PERSPECTIVE, ROTATED } from "../helpers/scenes";
+import { loadCv, makeScene, PERSPECTIVE, ROTATED, STRAIGHT } from "../helpers/scenes";
 
 export const SCANNER_DIR = path.resolve("tests/fixtures/generated/scanner");
 
@@ -16,9 +16,14 @@ export default async function setup() {
   if (!fs.existsSync(path.resolve("tests/fixtures/generated/text-5pages.pdf"))) {
     execFileSync(process.execPath, ["scripts/make-fixtures.mjs"], { stdio: "inherit" });
   }
-  if (fs.existsSync(path.join(SCANNER_DIR, "camera.mjpeg"))) return;
   fs.mkdirSync(SCANNER_DIR, { recursive: true });
   const cv = await loadCv();
+  // a Romanian letter photographed on a light desk under dim light, for OCR in Romanian
+  if (!fs.existsSync(path.join(SCANNER_DIR, "photo-romanian.jpg"))) {
+    const ro = await makeScene(cv, { corners: STRAIGHT, background: "light", exposure: 0.8, romanian: true, seed: 11 });
+    fs.writeFileSync(path.join(SCANNER_DIR, "photo-romanian.jpg"), await jpeg(ro.image));
+  }
+  if (fs.existsSync(path.join(SCANNER_DIR, "camera.mjpeg"))) return;
 
   // footage for Chromium's fake camera: a page lying on a desk
   const scene = await makeScene(cv, { corners: PERSPECTIVE });

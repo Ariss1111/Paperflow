@@ -1,7 +1,7 @@
 import {
   Combine, Scissors, LayoutGrid, RotateCw, FileMinus, FileOutput, FileX, Minimize2, Wrench, ArrowLeftRight,
   FileText, Presentation, Sheet, FileType, Image, Images, Code, PenLine, Signature, Stamp, Hash, PanelTop,
-  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare, ScanLine,
+  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare, ScanLine, Sparkles, MessagesSquare, Languages, ListChecks,
   type LucideProps,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,7 @@ import type { ToolCategory } from "@/lib/tools/catalog";
 const ICONS: Record<string, React.ComponentType<LucideProps>> = {
   Combine, Scissors, LayoutGrid, RotateCw, FileMinus, FileOutput, FileX, Minimize2, Wrench, ArrowLeftRight,
   FileText, Presentation, Sheet, FileType, Image, Images, Code, PenLine, Signature, Stamp, Hash, PanelTop,
-  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare, ScanLine,
+  Crop, Scaling, ClipboardPen, Layers, Bookmark, Lock, LockOpen, Info, ScanText, TextSelect, ImageDown, GitCompare, ScanLine, Sparkles, MessagesSquare, Languages, ListChecks,
 };
 
 export function Icon({ name, ...props }: { name: string } & LucideProps) {
@@ -21,12 +21,13 @@ export function Icon({ name, ...props }: { name: string } & LucideProps) {
 
 // Restrained per-category tints: identity without a rainbow.
 const TINT: Record<ToolCategory, string> = {
-  organize: "text-[#0a84ff] bg-[#0a84ff]/[0.1]",
-  edit: "text-[#a550e0] bg-[#bf5af2]/[0.11]",
-  convert: "text-[#25915c] bg-[#30a46c]/[0.12] dark:text-[#4cc38a]",
+  organize: "text-[#3478F6] bg-[#3478F6]/[0.1] dark:text-[#6EA0FF]",
   optimize: "text-[#d97a00] bg-[#ff9f0a]/[0.13] dark:text-[#ffb340]",
-  security: "text-[#e5352b] bg-[#ff453a]/[0.1] dark:text-[#ff6961]",
-  extract: "text-[#0a8fb8] bg-[#5ac8fa]/[0.15] dark:text-[#64d2ff]",
+  convert: "text-[#25915c] bg-[#30a46c]/[0.12] dark:text-[#4cc38a]",
+  edit: "text-[#a550e0] bg-[#bf5af2]/[0.11] dark:text-[#d08cf7]",
+  scan: "text-[#0a8fb8] bg-[#5ac8fa]/[0.15] dark:text-[#64d2ff]",
+  secure: "text-[#e5352b] bg-[#ff453a]/[0.1] dark:text-[#ff6961]",
+  ai: "text-[#5b4cf0] bg-gradient-to-br from-[#5b4cf0]/[0.12] to-[#3478F6]/[0.12] dark:text-[#9d93ff]",
 };
 
 export function ToolGlyph({ icon, category, size = "md", className }: { icon: string; category: ToolCategory; size?: "sm" | "md" | "lg"; className?: string }) {

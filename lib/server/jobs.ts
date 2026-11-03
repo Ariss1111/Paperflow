@@ -34,7 +34,8 @@ function validateInputs(tool: ToolDef, files: StoredFile[]) {
   }
   if (isEditor) {
     for (const f of files.slice(1)) {
-      if (!IMAGE_INPUTS.includes(f.format)) throw new UserError("Only images can be inserted into a PDF.", "unsupported_format", 415);
+      if (!IMAGE_INPUTS.includes(f.format) && f.format !== "pdf") throw new UserError("Only images and PDFs can be added to a PDF.", "unsupported_format", 415);
+      if (f.format === "pdf" && f.encrypted) throw new UserError(`“${f.name}” is password-protected. Unlock it first.`, "encrypted");
     }
   }
   if (tool.requires === "libreoffice" && !sofficePath()) {

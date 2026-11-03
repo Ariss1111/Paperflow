@@ -26,6 +26,20 @@ try {
 } catch {
   // not installed yet
 }
+// Tesseract OCR for the scanner: worker, LSTM engine builds and English/Romanian data, all same-origin
+try {
+  const out = join("public", "tesseract");
+  mkdirSync(join(out, "lang"), { recursive: true });
+  copyFileSync(join(dirname(require.resolve("tesseract.js/package.json")), "dist", "worker.min.js"), join(out, "worker.min.js"));
+  const core = dirname(require.resolve("tesseract.js-core/package.json"));
+  for (const f of ["tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm.js", "tesseract-core-relaxedsimd-lstm.wasm.js"]) copyFileSync(join(core, f), join(out, f));
+  for (const lang of ["eng", "ron"]) {
+    const src = join(dirname(require.resolve(`@tesseract.js-data/${lang}/package.json`)), "4.0.0_best_int", `${lang}.traineddata.gz`);
+    if (existsSync(src)) copyFileSync(src, join(out, "lang", `${lang}.traineddata.gz`));
+  }
+} catch {
+  // not installed yet
+}
 const fonts = join("node_modules", "dejavu-fonts-ttf", "ttf");
 for (const f of ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "DejaVuSerif.ttf", "DejaVuSerif-Bold.ttf", "DejaVuSansMono.ttf", "DejaVuSansMono-Bold.ttf"]) {
   if (existsSync(join(fonts, f))) copyFileSync(join(fonts, f), join("public", "fonts", f));

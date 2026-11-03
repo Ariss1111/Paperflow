@@ -741,6 +741,7 @@
   const MODE_DEFAULTS = {
     original: { shadows: false, contrast: 0, readability: false, sharpen: false },
     color: { shadows: true, contrast: 0.2, readability: false, sharpen: true },
+    contrast: { shadows: true, contrast: 0.6, readability: true, sharpen: true },
     gray: { shadows: true, contrast: 0.15, readability: false, sharpen: true },
     bw: { shadows: true, contrast: 0, readability: false, sharpen: false },
   };

@@ -3,7 +3,7 @@ import { upload, runAndWait, downloadFirst, firstLines, pdf } from "./helpers";
 
 test("home: upload suggests matching tools and continues into one", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Every document. One beautiful workspace." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Everything you need for your documents." })).toBeVisible();
   await upload(page, "text-3pages.pdf");
   await expect(page.getByText("What would you like to do?")).toBeVisible();
   await page.getByRole("main").getByRole("link", { name: "Compress PDF" }).first().click();

@@ -3,7 +3,9 @@
 // Scans are processed entirely on this device; nothing is uploaded unless the user asks to keep editing.
 
 export type Corners = [number, number][];
-export type ScanMode = "original" | "color" | "gray" | "bw";
+import type { OcrResult } from "./ocr";
+
+export type ScanMode = "original" | "color" | "contrast" | "gray" | "bw";
 
 export interface ScanOptions {
   shadows: boolean;
@@ -32,11 +34,14 @@ export interface ScanPage {
   resultUrl?: string;
   width?: number;
   height?: number;
+  /** recognised text of `result`; cleared whenever the page is re-rendered */
+  ocr?: OcrResult;
 }
 
 export const MODE_DEFAULTS: Record<ScanMode, ScanOptions> = {
   original: { shadows: false, contrast: 0, readability: false, sharpen: false },
   color: { shadows: true, contrast: 0.2, readability: false, sharpen: true },
+  contrast: { shadows: true, contrast: 0.6, readability: true, sharpen: true },
   gray: { shadows: true, contrast: 0.15, readability: false, sharpen: true },
   bw: { shadows: true, contrast: 0, readability: false, sharpen: false },
 };

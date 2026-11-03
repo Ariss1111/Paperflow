@@ -49,7 +49,7 @@ export function FileThumb({ file, width = 44, page = 1, rotation = 0, className 
   const FallbackIcon = file.encrypted ? Lock : kind === "spreadsheet" ? FileSpreadsheet : kind === "presentation" ? Presentation : kind === "text" ? FileCode : FileText;
   return (
     <div ref={box} className={cn("relative flex shrink-0 items-center justify-center overflow-hidden rounded-[5px] bg-white shadow-[0_0_0_0.5px_rgb(0_0_0/0.12),0_1px_2px_rgb(0_0_0/0.06)]", className)} style={{ width, minHeight: file.format === "pdf" && state === "done" ? undefined : height }}>
-      {file.format === "pdf" && !file.encrypted && <canvas ref={canvas} className={cn("block transition-opacity duration-300", state === "done" ? "opacity-100" : "opacity-0")} aria-hidden />}
+      {file.format === "pdf" && !file.encrypted && <canvas ref={canvas} className={cn("transition-opacity duration-300", state === "done" ? "block opacity-100" : "absolute left-0 top-0 opacity-0")} aria-hidden />}
       {(file.format !== "pdf" || file.encrypted || state !== "done") && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-surface-2">
           <FallbackIcon className="size-[40%] max-h-6 max-w-6 text-ink-3" strokeWidth={1.5} aria-hidden />

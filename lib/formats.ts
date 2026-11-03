@@ -1,4 +1,4 @@
-// Client-safe description of every file format Paperflow recognises.
+// Client-safe description of every file format Pagelyt recognises.
 
 export type FormatId =
   | "pdf"

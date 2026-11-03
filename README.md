@@ -1,4 +1,6 @@
-# Paperflow
+# Pagelyt
+
+*Every page. In its place.*
 
 A document workspace for PDFs and Office files: edit, sign, convert, merge, split, organize, compress, protect and OCR.
 Every tool performs its real operation on your file. Nothing is simulated, and a tool that needs a missing engine says so instead of pretending.
@@ -39,6 +41,72 @@ The image includes LibreOffice and Office-compatible fonts (Carlito, Caladea, Li
 
 ---
 
+## AI tools (optional)
+
+The **AI Workspace** (`/ai`) shows the document on one side and the assistant on the other:
+
+- **Chat** with suggested questions, page citations that scroll the viewer, and "Explain this paragraph" on text selected in the viewer.
+- **Summary** in six styles: short, detailed, by section, key points, important dates, action items.
+- **Translate** into English, Romanian, French, German, Spanish or Italian, keeping headings, lists and tables, with downloads as Word (.docx) or Markdown.
+- **Extract** invoice numbers, names, addresses, dates, prices, tables, contacts and clauses as structured data, exported as CSV or JSON.
+- **Compare** two PDFs: reworded, added and removed paragraphs, changed dates and numbers, and formatting changes. This runs on the server **without AI**. An optional "Explain with AI" sends only the list of differences.
+
+It runs on Anthropic's Claude API (model `claude-opus-5-5`, with Anthropic's server-side fallback so a declined request is retried on a suitable model).
+
+1. Create an API key at https://console.anthropic.com (usage is billed per document by Anthropic).
+2. Locally: create a file named `.env.local` next to `package.json` containing `ANTHROPIC_API_KEY=sk-ant-...`, then restart. On Render: service → **Environment** → **Add Environment Variable** → `ANTHROPIC_API_KEY`.
+
+**Security and privacy.** The key lives only on the server; the browser talks to Pagelyt's `/api/ai`, never to Anthropic. Without a key, the AI features say *Needs setup* and nothing is sent anywhere. With a key, a document goes to Anthropic only when someone uses an AI feature, and the workspace asks once before the first time.
+
+**Long documents.** Up to 100 pages are read in one request. Longer ones are processed in sections:
+- **Summaries:** notes are written per 50-page section, then the summary is written from the notes.
+- **Questions:** only the sections most relevant to the question are read (TF-IDF ranking), and the answer says which pages were read.
+- **Translation:** done 8 pages at a time.
+
+**Cost safeguards** (all set through environment variables; see `.env.example`):
+- **Per visitor, per day:** a request allowance (`AI_DAILY_REQUESTS`, default 30) and a token allowance (`AI_DAILY_TOKENS`, default 1.5M), counted from the provider's own usage figures.
+- **Per document:** a file size limit (`AI_MAX_FILE_MB`, default 25) and a page limit (`AI_MAX_PAGES`, default 300).
+- **Whole server:** a daily cap (`AI_GLOBAL_DAILY_REQUESTS`, default 2000).
+- **Per minute:** a rate limit (`RATE_LIMIT_AI_PER_MIN`, default 12).
+
+Usage is shown in the workspace and kept in `DATA_DIR/ai-usage.json`, so a restart doesn't reset it. A **Pro** plan with larger allowances (`AI_PRO_*`) is defined. `planFor()` in `lib/server/ai/config.ts` is the single place a billing system would assign it; until then everyone is on Free.
+
+**Providers.** `AI_PROVIDER` selects the provider (`anthropic`, or `none` to switch AI off). Each provider implements the small `AiProvider` interface in `lib/server/ai/provider.ts`; Anthropic is the one included.
+
+## Accounts and saved documents (optional)
+
+The PDF tools work without an account. With one, people can do the following:
+- **My Documents:** upload, view and open documents, rename them, put them in folders (moving them between folders), mark favourites, search, and sort by date, name or size. There are Recent, Shared and Trash views, and storage use is shown.
+- **Sync:** saved documents and preferences are the same on every device. The library checks for changes every 15 seconds and whenever the window comes back into focus.
+- **History:** the PDF Editor saves straight back to a saved document as a new version. Each document keeps 10 versions and an activity log, and any version can be downloaded or restored.
+- **Sharing:**
+  - Links contain 128 random bits.
+  - A link is either for anyone who has it, or private to named people, who must sign in with that email.
+  - Optional password, expiry date and download permission, plus view counts and revoking.
+
+**How it's built.**
+- **Sign-in:** email and password (scrypt), with email confirmation and password reset by email, or Google (OAuth with PKCE).
+- **Sessions:** server-side. The cookie holds a random token, and the database stores only its SHA-256.
+- **Data:** Postgres in production; the built-in PGlite when `DATABASE_URL` isn't set.
+- **Files:** a private S3-compatible bucket in production (Cloudflare R2, Amazon S3); a private folder in `DATA_DIR` otherwise. Every file is served through a signed link that expires after 5 minutes, and only after an access check. Another user's document always answers 404.
+
+**Abuse protection.**
+- Rate limits on sign-up, login, password reset and link passwords, with login lockout after repeated failures.
+- File type checked by content, size limits and a per-account quota.
+
+**Cleanup**, run every hour:
+- Expired sessions and tokens are removed.
+- Unconfirmed accounts are deleted after 7 days.
+- The Trash is emptied after 30 days, and old link records are purged.
+
+Deleting an account removes everything at once.
+
+Locally, `start-paperflow.cmd` stores everything in `.data/` and shows emails at http://localhost:3210/dev/mail. To put it online, follow DEPLOY.md → *Turn on accounts and saved documents*.
+
+## Brand
+
+Logo, mark, app icon, favicons and the PWA manifest are generated from one geometry by `node scripts/make-brand.mjs` (outputs in `public/brand/`, `app/icon.svg`, `app/apple-icon.png`). The in-app logo lives in `components/brand/Logo.tsx`; colours and type are design tokens in `app/globals.css` (accent `#3478F6`; SF Pro on Apple devices, Inter elsewhere). Pricing plans are edited in `lib/pricing.ts`.
+
 ## System requirements
 
 | Component | Needed for | Notes |
@@ -57,7 +125,7 @@ Copy `.env.example` to `.env`. All values are optional.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `NEXT_PUBLIC_APP_NAME` | Paperflow | Product name in the UI |
+| `NEXT_PUBLIC_APP_NAME` | Pagelyt | Product name in the UI |
 | `DATA_DIR` | `<tmp>/paperflow` | Uploads, results, LibreOffice profile |
 | `RETENTION_MINUTES` | 60 | Files and results are deleted after this |
 | `MAX_UPLOAD_MB` | 200 | Per-file limit |
@@ -240,4 +308,4 @@ The job queue and file index are in memory, so run **one instance**. Scale up wi
 
 ## License notes
 
-MuPDF (`mupdf` npm package) is AGPL-3.0. If you offer Paperflow as a network service, AGPL requires you to provide the corresponding source code to users, or to obtain a commercial MuPDF licence from Artifex. LibreOffice is MPL-2.0, Tesseract and OpenCV are Apache-2.0, pdf-lib and PDF.js are MIT/Apache-2.0, and DejaVu fonts are free.
+MuPDF (`mupdf` npm package) is AGPL-3.0. If you offer Pagelyt as a network service, AGPL requires you to provide the corresponding source code to users, or to obtain a commercial MuPDF licence from Artifex. LibreOffice is MPL-2.0, Tesseract and OpenCV are Apache-2.0, pdf-lib and PDF.js are MIT/Apache-2.0, and DejaVu fonts are free.

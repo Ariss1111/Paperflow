@@ -6,7 +6,9 @@ import { PDFDocument, degrees, LineCapStyle, type PDFPage, type PDFFont, type PD
 import sharp from "sharp";
 import { UserError } from "@/lib/server/errors";
 import { embedFont, drawable, type FontFamily } from "@/lib/server/fonts";
-import { load, hexToRgb, assemble } from "./ops";
+import { load, hexToRgb, assemble, watermark, pageNumbers } from "./ops";
+
+const clampNum = (v: unknown, lo: number, hi: number, d: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 import { openDoc, mupdf } from "./mu";
 import type { EditDocument, EditObject, Rect, TextObj, ReplaceObj } from "@/lib/editor/model";
 import { LINE_HEIGHT } from "@/lib/editor/model";
@@ -14,6 +16,13 @@ import { LINE_HEIGHT } from "@/lib/editor/model";
 export interface EditAssets {
   /** uploaded image bytes keyed by file id */
   images: Map<string, Uint8Array>;
+  /** extra PDFs (merged documents, blank pages) keyed by file id */
+  pdfs?: Map<string, Uint8Array>;
+}
+
+export interface ExportOptions {
+  /** only these page keys, in document order (extract pages) */
+  only?: string[];
 }
 
 const MAX_OBJECTS = 5000;
@@ -23,7 +32,7 @@ function color3(hex: string): [number, number, number] {
   return [c.red, c.green, c.blue];
 }
 
-function validate(doc: EditDocument, pageCount: number) {
+function validate(doc: EditDocument, pageCounts: number[]) {
   if (!doc || doc.version !== 1 || !Array.isArray(doc.pages) || !Array.isArray(doc.objects)) {
     throw new UserError("The edit data is malformed.");
   }
@@ -32,7 +41,9 @@ function validate(doc: EditDocument, pageCount: number) {
   const keys = new Set<string>();
   for (const p of doc.pages) {
     if (typeof p.key !== "string" || keys.has(p.key)) throw new UserError("Duplicate page key.");
-    if (!Number.isInteger(p.src) || p.src < 0 || p.src >= pageCount) throw new UserError("A page refers to a page that doesn't exist.");
+    const file = p.file ?? 0;
+    if (!Number.isInteger(file) || file < 0 || file >= pageCounts.length) throw new UserError("A page refers to a document that isn't available.");
+    if (!Number.isInteger(p.src) || p.src < 0 || p.src >= pageCounts[file]) throw new UserError("A page refers to a page that doesn't exist.");
     if (![0, 90, 180, 270].includes(p.rotate)) throw new UserError("Invalid page rotation.");
     keys.add(p.key);
   }
@@ -84,14 +95,27 @@ function rectToQuad(m: number[], r: Rect): mupdf.Quad {
   return [...ul, ...ur, ...ll, ...lr] as mupdf.Quad;
 }
 
-export async function applyEdits(source: Uint8Array, edit: EditDocument, assets: EditAssets): Promise<{ bytes: Uint8Array; stats: Record<string, number> }> {
-  const srcDoc = await load(source);
-  validate(edit, srcDoc.getPageCount());
+export async function applyEdits(source: Uint8Array, input: EditDocument, assets: EditAssets, opts: ExportOptions = {}): Promise<{ bytes: Uint8Array; stats: Record<string, number> }> {
+  const sources = [source];
+  for (const id of input?.sources ?? []) {
+    const extra = assets.pdfs?.get(id);
+    if (!extra) throw new UserError("A PDF you added is no longer available. Add it again and export.");
+    sources.push(extra);
+  }
+  const counts = await Promise.all(sources.map(async (b) => (await load(b)).getPageCount()));
+  validate(input, counts);
+  // extract: keep only the chosen pages (and their objects)
+  let edit = input;
+  if (opts.only) {
+    const keep = new Set(opts.only);
+    edit = { ...input, pages: input.pages.filter((p) => keep.has(p.key)) };
+    if (!edit.pages.length) throw new UserError("Select at least one page to extract.");
+  }
 
-  // ---- pass 1: page assembly
+  // ---- pass 1: page assembly (reorder, duplicate, delete, rotate, pages from other PDFs)
   const assembled = await assemble(
-    [source],
-    edit.pages.map((p) => ({ src: 0, page: p.src, rotate: p.rotate })),
+    sources,
+    edit.pages.map((p) => ({ src: p.file ?? 0, page: p.src, rotate: p.rotate })),
   );
   const pageIndex = new Map(edit.pages.map((p, i) => [p.key, i]));
   const byPage = new Map<number, EditObject[]>();
@@ -276,6 +300,30 @@ export async function applyEdits(source: Uint8Array, edit: EditDocument, assets:
   }
 
   let bytes = await doc.save({ useObjectStreams: true });
+  const wm = edit.watermark;
+  if (wm && wm.text?.trim()) {
+    const r = await watermark(bytes, {
+      text: String(wm.text).slice(0, 200),
+      size: clampNum(wm.size, 8, 200, 54),
+      color: /^#[0-9a-f]{6}$/i.test(wm.color) ? wm.color : "#d70015",
+      opacity: clampNum(wm.opacity, 0.05, 1, 0.25),
+      angle: clampNum(wm.angle, -90, 90, 45),
+      position: wm.position === "tile" ? "tile" : "center",
+    });
+    bytes = r.bytes;
+    stats.watermark = 1;
+  }
+  const pn = edit.pageNumbers;
+  if (pn) {
+    bytes = await pageNumbers(bytes, {
+      position: ["bottom-center", "bottom-right", "bottom-left", "top-center", "top-right", "top-left"].includes(pn.position) ? pn.position : "bottom-center",
+      format: String(pn.format || "{n}").slice(0, 80),
+      start: clampNum(pn.start, 0, 100000, 1),
+      size: clampNum(pn.size, 6, 48, 10),
+      margin: 28,
+    });
+    stats.pageNumbers = 1;
+  }
   if (edit.flattenAnnotations) {
     const m = openDoc(bytes);
     m.bake(true, true);

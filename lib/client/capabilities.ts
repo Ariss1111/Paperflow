@@ -5,6 +5,7 @@ export interface Capabilities {
   libreoffice: { available: boolean; version: string | null };
   ocr: { languages: { code: string; name: string }[] };
   malwareScanning: boolean;
+  ai: { available: boolean; model: string | null; provider: string | null };
   limits: { maxUploadBytes: number; maxFilesPerRequest: number; retentionMinutes: number };
   conversions: { id: string; available: boolean }[];
 }

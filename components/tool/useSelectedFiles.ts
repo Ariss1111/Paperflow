@@ -36,8 +36,12 @@ export function useSelectedFiles() {
     const key = files.map((f) => f.id).join(",");
     if (loading || key === synced.current) return;
     synced.current = key;
-    const url = key ? `${pathname}?files=${key}` : pathname;
-    window.history.replaceState(window.history.state, "", url);
+    // keep other parameters (e.g. the saved document the editor was opened from)
+    const q = new URLSearchParams(window.location.search);
+    if (key) q.set("files", key);
+    else q.delete("files");
+    const qs = q.toString().replace(/%2C/g, ",");
+    window.history.replaceState(window.history.state, "", qs ? `${pathname}?${qs}` : pathname);
   }, [files, loading, pathname]);
 
   return { files, setFiles, loading, missing };

@@ -15,3 +15,18 @@ services:
         value: "100"
       - key: JOB_CONCURRENCY
         value: "1"
+      # accounts and saved documents (see DEPLOY.md → Turn on accounts); fill these in on Render
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
