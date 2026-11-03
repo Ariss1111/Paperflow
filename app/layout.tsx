@@ -6,7 +6,9 @@ import { APP_NAME, APP_TAGLINE, APP_DESCRIPTION, SITE_URL } from "@/lib/brand";
 import { THEME_SCRIPT } from "@/lib/client/settings";
 
 // Self-hosted at build time; SF Pro still wins on Apple devices (see --font-sans).
-const inter = Inter({ subsets: ["latin", "latin-ext"], variable: "--font-inter", display: "swap" });
+// adjustFontFallback off: its generated <meta name="next-size-adjust"> intermittently broke hydration on
+// the live site (React #418) when streamed with the page metadata.
+const inter = Inter({ subsets: ["latin", "latin-ext"], variable: "--font-inter", display: "swap", adjustFontFallback: false });
 
 export const metadata: Metadata = {
   title: { default: `${APP_NAME} — ${APP_TAGLINE}`, template: `%s · ${APP_NAME}` },
