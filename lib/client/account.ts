@@ -24,7 +24,9 @@ interface State {
   features: Features;
 }
 
-let state: State = { loaded: false, user: null, features: { google: false, email: false, devMailbox: false } };
+/** What the server renders with (it never knows who's signed in). Hydration must start from exactly this. */
+const SERVER_STATE: State = { loaded: false, user: null, features: { google: false, email: false, devMailbox: false } };
+let state: State = SERVER_STATE;
 const listeners = new Set<() => void>();
 let inflight: Promise<void> | null = null;
 
@@ -49,7 +51,8 @@ export function useAccount() {
       return () => listeners.delete(l);
     },
     () => state,
-    () => state,
+    // during hydration: the server's state, even if the sign-in check already finished in this browser
+    () => SERVER_STATE,
   );
   React.useEffect(() => {
     if (!state.loaded) void refreshAccount();

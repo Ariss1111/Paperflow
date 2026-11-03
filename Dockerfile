@@ -25,11 +25,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-dejavu fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-noto-core \
       tini \
     && rm -rf /var/lib/apt/lists/*
+# Memory: small instances (Render free/starter, 512 MB) also run LibreOffice next to Node, so Node's heap is
+# capped (raise it on bigger instances via NODE_OPTIONS) and glibc keeps fewer memory arenas.
 ENV NODE_ENV=production \
     PORT=3210 \
     HOSTNAME=0.0.0.0 \
     DATA_DIR=/data \
-    SOFFICE_PATH=/usr/bin/soffice
+    SOFFICE_PATH=/usr/bin/soffice \
+    NODE_OPTIONS=--max-old-space-size=256 \
+    MALLOC_ARENA_MAX=2
 WORKDIR /app
 RUN useradd --create-home --uid 1001 paperflow && mkdir -p /data && chown paperflow /data
 COPY --from=build --chown=paperflow /app/.next ./.next

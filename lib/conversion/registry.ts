@@ -99,11 +99,13 @@ table{border-collapse:collapse}td,th{border:0.5pt solid #bbb;padding:3pt 6pt}
 blockquote{color:#555;border-left:2pt solid #ccc;padding-left:8pt}
 </style>`;
 
+// HTML is imported as a regular Writer document ("HTML (StarWriter)"): LibreOffice 7.4's Writer/Web
+// import, used by Debian's package, drops the first paragraph and starts with a blank page.
 const html: Converter = async (input, ctx) => {
   ctx.progress(null, "Rendering HTML…");
   const raw = await fsp.readFile(input.path, "utf8");
   const src = await staged(input, ctx, "html", sanitizeHtml(raw));
-  const pdf = await convertWithLibreOffice(src, path.join(ctx.workDir, "lo-out"), { convertTo: "pdf:writer_web_pdf_Export", signal: ctx.signal });
+  const pdf = await convertWithLibreOffice(src, path.join(ctx.workDir, "lo-out"), { convertTo: "pdf:writer_pdf_Export", infilter: "HTML (StarWriter)", signal: ctx.signal });
   return [out(baseName(input.name), "pdf", await validatePdf(pdf))];
 };
 
@@ -113,7 +115,7 @@ const markdown: Converter = async (input, ctx) => {
   const body = await marked.parse(md, { gfm: true, async: true });
   const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${baseName(input.name).replace(/[<>&]/g, "")}</title>${HTML_STYLE}</head><body>${sanitizeHtml(body)}</body></html>`;
   const src = await staged(input, ctx, "html", doc);
-  const pdf = await convertWithLibreOffice(src, path.join(ctx.workDir, "lo-out"), { convertTo: "pdf:writer_web_pdf_Export", signal: ctx.signal });
+  const pdf = await convertWithLibreOffice(src, path.join(ctx.workDir, "lo-out"), { convertTo: "pdf:writer_pdf_Export", infilter: "HTML (StarWriter)", signal: ctx.signal });
   return [out(baseName(input.name), "pdf", await validatePdf(pdf))];
 };
 

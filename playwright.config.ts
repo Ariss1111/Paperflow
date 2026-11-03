@@ -5,6 +5,8 @@ const PORT = Number(process.env.E2E_PORT || 3210);
 const AI_PORT = Number(process.env.E2E_AI_PORT || 3211);
 const AI_MOCK_PORT = Number(process.env.E2E_AI_MOCK_PORT || 4599);
 const tmp = os.tmpdir();
+// E2E_BASE_URL runs the tests against a deployed site (e.g. the public Render URL) instead of local servers
+const REMOTE = process.env.E2E_BASE_URL?.replace(/\/+$/, "");
 
 // Uses an installed Microsoft Edge (or Chrome via E2E_CHANNEL=chrome) so no browser download is needed.
 export default defineConfig({
@@ -16,13 +18,13 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: REMOTE ?? `http://localhost:${PORT}`,
     channel: process.env.E2E_CHANNEL || "msedge",
     viewport: { width: 1400, height: 900 },
     acceptDownloads: true,
     trace: "retain-on-failure",
   },
-  webServer: [
+  webServer: REMOTE ? undefined : [
     {
       command: `"${process.execPath}" node_modules/next/dist/bin/next dev -p ${PORT}`,
       url: `http://localhost:${PORT}/api/capabilities`,

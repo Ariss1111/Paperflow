@@ -1,6 +1,12 @@
 import "server-only";
 import os from "node:os";
 import path from "node:path";
+import sharp from "sharp";
+
+// The image library keeps a cache of decoded images and works on several threads; on small instances
+// that memory is better left for LibreOffice. Files are processed once, so the cache never helps.
+sharp.cache(false);
+sharp.concurrency(Number(process.env.SHARP_CONCURRENCY || 1));
 
 function int(name: string, fallback: number, min = 1): number {
   const v = Number.parseInt(process.env[name] ?? "", 10);
